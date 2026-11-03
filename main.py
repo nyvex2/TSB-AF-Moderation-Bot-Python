@@ -101,27 +101,42 @@ async def get_jail_role(guild: discord.Guild) -> discord.Role:
         role = discord.utils.get(guild.roles, name="Blacklisted")
     if role is None:
         role = await guild.create_role(name="Blacklisted", color=CYAN, reason="Automatic blacklist jail role")
+    if str(role.id) != str(role_id):
+        cfg["jailSetupComplete"] = False
     cfg["blacklistRoleId"] = str(role.id)
     return role
 
-async def apply_jail_permissions(guild: discord.Guild, role: discord.Role) -> None:
+async def apply_jail_permissions(guild: discord.Guild, role: discord.Role, channels=None) -> int:
+    """Apply jail overwrites only where they differ; optionally target specific channels."""
     allowed = {int(cid) for cid in guild_config(guild.id).get("jailChannelIds", [])}
-    for channel in guild.channels:
-        overwrite = channel.overwrites_for(role)
-        overwrite.view_channel = channel.id in allowed
-        if isinstance(channel, (discord.TextChannel, discord.ForumChannel, discord.Thread)):
+    targets = list(channels) if channels is not None else list(guild.channels)
+    updated = 0
+    for channel in targets:
+        current = channel.overwrites_for(role)
+        desired = channel.overwrites_for(role)
+        desired.view_channel = channel.id in allowed
+        if isinstance(channel, (discord.TextChannel, discord.ForumChannel)):
             if channel.id in allowed:
-                overwrite.send_messages = True
-                overwrite.read_message_history = True
+                desired.send_messages = True
+                desired.read_message_history = True
             else:
-                overwrite.send_messages = False
+                desired.send_messages = False
         elif isinstance(channel, (discord.VoiceChannel, discord.StageChannel)):
-            overwrite.connect = channel.id in allowed
-        await channel.set_permissions(role, overwrite=overwrite, reason="Configure blacklist jail access")
+            desired.connect = channel.id in allowed
+        if desired != current:
+            await channel.set_permissions(role, overwrite=desired, reason="Configure blacklist jail access")
+            updated += 1
+    return updated
+
+async def ensure_jail_setup(guild: discord.Guild, role: discord.Role) -> None:
+    cfg = guild_config(guild.id)
+    if not cfg.get("jailSetupComplete"):
+        await apply_jail_permissions(guild, role)
+        cfg["jailSetupComplete"] = True
 
 async def blacklist_member(guild: discord.Guild, member: discord.Member, reason: str, moderator: discord.abc.User, case_id: int) -> discord.Role:
     role = await get_jail_role(guild)
-    await apply_jail_permissions(guild, role)
+    await ensure_jail_setup(guild, role)
     old_nickname = member.nick
     await member.add_roles(role, reason=f"Blacklist case #{case_id}")
     nickname_error = None
@@ -440,6 +455,18 @@ async def prefix_blcheck(ctx, member: discord.User):
     await ctx.send(f"{member.mention} is blacklisted. Reason: {record['reason']} | Case #{record['caseId']}")
 
 @bot.event
+async def on_guild_channel_create(channel: discord.abc.GuildChannel):
+    cfg = guild_config(channel.guild.id)
+    role_id = cfg.get("blacklistRoleId")
+    role = channel.guild.get_role(int(role_id)) if role_id else None
+    if role and cfg.get("jailSetupComplete"):
+        try:
+            await apply_jail_permissions(channel.guild, role, channels=[channel])
+        except discord.Forbidden:
+            print(f"Could not apply jail permissions to new channel {channel.id}; check Manage Channels.")
+
+
+@bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
@@ -606,17 +633,21 @@ async def config_staff_role(interaction: discord.Interaction, role: discord.Role
 @config_group.command(name="blacklist-role", description="Set the blacklist role.")
 async def config_blacklist_role(interaction: discord.Interaction, role: discord.Role):
     if not await config_guard(interaction): return
-    guild_config(interaction.guild.id)["blacklistRoleId"] = str(role.id); save_state()
-    await reply_private(interaction, f"Blacklist role set to {role.mention}.")
+    cfg = guild_config(interaction.guild.id)
+    cfg["blacklistRoleId"] = str(role.id)
+    cfg["jailSetupComplete"] = False
+    save_state()
+    await reply_private(interaction, f"Blacklist role set to {role.mention}. Run `/config jail-setup` to apply jail permissions.")
 
 @config_group.command(name="jail-setup", description="Create/update the blacklist jail role and channel permissions.")
 async def config_jail_setup(interaction: discord.Interaction):
     if not await config_guard(interaction): return
     await interaction.response.defer(ephemeral=True, thinking=True)
     role = await get_jail_role(interaction.guild)
-    await apply_jail_permissions(interaction.guild, role)
+    updated = await apply_jail_permissions(interaction.guild, role)
+    guild_config(interaction.guild.id)["jailSetupComplete"] = True
     save_state()
-    await reply_private(interaction, f"Jail role {role.mention} is ready. Add allowed channels with `/config jail-channel`.")
+    await reply_private(interaction, f"Jail role {role.mention} is ready. Updated {updated} channel permission(s). Add allowed channels with `/config jail-channel`.")
 
 @config_group.command(name="jail-channel", description="Allow jailed members to access one channel.")
 @app_commands.describe(channel="Channel jailed members may access")
@@ -628,9 +659,10 @@ async def config_jail_channel(interaction: discord.Interaction, channel: discord
     ids.add(str(channel.id))
     cfg["jailChannelIds"] = sorted(ids)
     role = await get_jail_role(interaction.guild)
-    await apply_jail_permissions(interaction.guild, role)
+    await ensure_jail_setup(interaction.guild, role)
+    updated = await apply_jail_permissions(interaction.guild, role, channels=[channel])
     save_state()
-    await reply_private(interaction, f"{channel.mention} is now allowed for the {role.mention} role.")
+    await reply_private(interaction, f"{channel.mention} is now allowed for the {role.mention} role. Updated {updated} channel permission(s).")
 
 @config_group.command(name="jail-channel-remove", description="Remove a channel from the jail allowlist.")
 @app_commands.describe(channel="Channel to remove from jail access")
@@ -640,9 +672,10 @@ async def config_jail_channel_remove(interaction: discord.Interaction, channel: 
     cfg = guild_config(interaction.guild.id)
     cfg["jailChannelIds"] = [str(cid) for cid in cfg.get("jailChannelIds", []) if str(cid) != str(channel.id)]
     role = await get_jail_role(interaction.guild)
-    await apply_jail_permissions(interaction.guild, role)
+    await ensure_jail_setup(interaction.guild, role)
+    updated = await apply_jail_permissions(interaction.guild, role, channels=[channel])
     save_state()
-    await reply_private(interaction, f"{channel.mention} was removed from the jail allowlist.")
+    await reply_private(interaction, f"{channel.mention} was removed from the jail allowlist. Updated {updated} channel permission(s).")
 
 @config_group.command(name="tryout-role", description="Set the role allowed to use /stage.")
 async def config_tryout_role(interaction: discord.Interaction, role: discord.Role):
