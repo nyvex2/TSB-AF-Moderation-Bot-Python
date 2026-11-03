@@ -850,31 +850,66 @@ async def stage(interaction: discord.Interaction, user: discord.Member, stage: a
     if not (is_admin(interaction) or is_host):
         return await reply_private(interaction, "Only members with the configured tryout-host role can use /stage.")
     power_key, rank_key = power.strip().lower(), rank.strip().lower()
+    stage_id = cfg.get("stageRoles", {}).get(str(stage))
     power_id = cfg.get("stagePowerRoles", {}).get(power_key)
     rank_id = cfg.get("stageRankRoles", {}).get(rank_key)
-    if not power_id or not rank_id:
-        return await reply_private(interaction, "That power or rank is not configured. Ask an administrator to configure it under `/config`.")
+    if not stage_id or not power_id or not rank_id:
+        return await reply_private(interaction, "That stage, power, or rank is not configured. Ask an administrator to configure them under `/config`.")
+    stage_role = interaction.guild.get_role(int(stage_id))
     power_role = interaction.guild.get_role(int(power_id))
     rank_role = interaction.guild.get_role(int(rank_id))
-    if not power_role or not rank_role:
-        return await reply_private(interaction, "A configured power/rank role no longer exists. An administrator must update the stage role configuration.")
+    if not stage_role or not power_role or not rank_role:
+        return await reply_private(interaction, "A configured stage/power/rank role no longer exists. An administrator must update the stage role configuration.")
     bot_member = interaction.guild.me
-    if not bot_member or power_role >= bot_member.top_role or rank_role >= bot_member.top_role:
-        return await reply_private(interaction, "I cannot assign one of those roles. Move my bot role above the configured power and rank roles.")
+    if not bot_member or any(role >= bot_member.top_role for role in (stage_role, power_role, rank_role)):
+        return await reply_private(interaction, "I cannot assign one of those roles. Move my bot role above the configured stage, power, and rank roles.")
     await interaction.response.defer(thinking=True)
     # Keep one active role from each configured category; preserve unrelated member roles.
-    managed_ids = {int(rid) for mapping in (cfg.get("stagePowerRoles", {}), cfg.get("stageRankRoles", {})) for rid in mapping.values()}
-    remove_roles = [r for r in user.roles if r.id in managed_ids and r.id not in {power_role.id, rank_role.id}]
+    managed_ids = {int(rid) for mapping in (cfg.get("stageRoles", {}), cfg.get("stagePowerRoles", {}), cfg.get("stageRankRoles", {})) for rid in mapping.values()}
+    selected_ids = {stage_role.id, power_role.id, rank_role.id}
+    remove_roles = [r for r in user.roles if r.id in managed_ids and r.id not in selected_ids]
     if remove_roles:
         await user.remove_roles(*remove_roles, reason=f"Stage roles updated by {interaction.user}")
-    await user.add_roles(power_role, rank_role, reason=f"Stage {stage} awarded by {interaction.user}")
-    record = {"guildId":str(interaction.guild.id),"userId":str(user.id),"stage":stage,"power":power_key,"rank":rank_key,"powerRoleId":str(power_role.id),"rankRoleId":str(rank_role.id),"hostId":str(interaction.user.id),"createdAt":now()}
+    await user.add_roles(stage_role, power_role, rank_role, reason=f"Stage {stage} awarded by {interaction.user}")
+    record = {"guildId":str(interaction.guild.id),"userId":str(user.id),"stage":stage,"stageRoleId":str(stage_role.id),"power":power_key,"rank":rank_key,"powerRoleId":str(power_role.id),"rankRoleId":str(rank_role.id),"hostId":str(interaction.user.id),"createdAt":now()}
     state.setdefault("stages", []).append(record)
     save_state()
-    embed = discord.Embed(title="Stage Passed", description=f"**Player**\n{user.mention}\n\n**Stage**\n{stage}\n\n**Power**\n{power_role.mention}\n\n**Rank**\n{rank_role.mention}\n\n**Tryout Host**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
+    embed = discord.Embed(title="Stage Passed", description=f"**Player**\n{user.mention}\n\n**Stage**\n{stage_role.mention} (Stage {stage})\n\n**Power**\n{power_role.mention}\n\n**Rank**\n{rank_role.mention}\n\n**Tryout Host**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text="TSBAF • Tryout System")
     await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
+
+@tree.command(name="stage-remove", description="Remove a player's configured stage, power, and rank roles.")
+@app_commands.describe(user="Player whose stage assignment should be removed")
+async def stage_remove(interaction: discord.Interaction, user: discord.Member):
+    if not interaction.guild:
+        return await reply_private(interaction, "This command can only be used inside a server.")
+    cfg = guild_config(interaction.guild.id)
+    host_role_id = cfg.get("tryoutHostRoleId")
+    is_host = isinstance(interaction.user, discord.Member) and host_role_id and any(r.id == int(host_role_id) for r in interaction.user.roles)
+    if not (is_admin(interaction) or is_host):
+        return await reply_private(interaction, "Only members with the configured tryout-host role can use /stage-remove.")
+    managed_ids = {int(rid) for mapping in (cfg.get("stageRoles", {}), cfg.get("stagePowerRoles", {}), cfg.get("stageRankRoles", {})) for rid in mapping.values()}
+    active_record = next((record for record in reversed(state.get("stages", [])) if record.get("guildId") == str(interaction.guild.id) and record.get("userId") == str(user.id) and not record.get("removedAt")), None)
+    if active_record:
+        managed_ids.update(int(active_record[key]) for key in ("stageRoleId", "powerRoleId", "rankRoleId") if active_record.get(key))
+    remove_roles = [role for role in user.roles if role.id in managed_ids]
+    if not remove_roles:
+        return await reply_private(interaction, f"{user.mention} has no configured stage, power, or rank roles to remove.")
+    bot_member = interaction.guild.me
+    if not bot_member or any(role >= bot_member.top_role for role in remove_roles):
+        return await reply_private(interaction, "I cannot remove one of those roles. Move my bot role above the configured stage roles.")
+    await interaction.response.defer(thinking=True)
+    await user.remove_roles(*remove_roles, reason=f"Stage assignment removed by {interaction.user}")
+    if active_record:
+        active_record["removedAt"] = now()
+        active_record["removedBy"] = str(interaction.user.id)
+    save_state()
+    embed = discord.Embed(title="Stage Assignment Removed", description=f"**Player**\n{user.mention}\n\n**Removed roles**\n" + ", ".join(role.mention for role in remove_roles) + f"\n\n**Removed by**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
+    embed.set_footer(text="TSBAF • Tryout System")
+    await interaction.followup.send(embed=embed)
+    await send_log(interaction.guild, embed)
+
 
 config_group = app_commands.Group(name="config", description="Configure the moderation bot.")
 
@@ -973,6 +1008,8 @@ async def config_tryout_role(interaction: discord.Interaction, role: discord.Rol
 @app_commands.describe(power="Power label used by /stage", role="Existing server role to assign")
 async def config_stage_power_role(interaction: discord.Interaction, power: app_commands.Range[str, 1, 30], role: discord.Role):
     if not await config_guard(interaction): return
+    if not power.strip() or len(power.strip()) > 30:
+        return await reply_private(interaction, "Power labels must be between 1 and 30 characters.")
     if role.is_default() or role.managed:
         return await reply_private(interaction, "Choose a normal, assignable server role.")
     cfg = guild_config(interaction.guild.id)
@@ -984,12 +1021,25 @@ async def config_stage_power_role(interaction: discord.Interaction, power: app_c
 @app_commands.describe(rank="Rank label used by /stage", role="Existing server role to assign")
 async def config_stage_rank_role(interaction: discord.Interaction, rank: app_commands.Range[str, 1, 30], role: discord.Role):
     if not await config_guard(interaction): return
+    if not rank.strip() or len(rank.strip()) > 30:
+        return await reply_private(interaction, "Rank labels must be between 1 and 30 characters.")
     if role.is_default() or role.managed:
         return await reply_private(interaction, "Choose a normal, assignable server role.")
     cfg = guild_config(interaction.guild.id)
     cfg.setdefault("stageRankRoles", {})[rank.strip().lower()] = str(role.id)
     save_state()
     await reply_private(interaction, f"Stage rank `{rank.strip().lower()}` now assigns {role.mention}. It will appear in /stage autocomplete.")
+
+@config_group.command(name="stage-role", description="Map a numbered stage (1, 2, 3...) to its existing role.")
+@app_commands.describe(stage="Stage number, from 1 to 100", role="Existing server role to assign for this stage")
+async def config_stage_role(interaction: discord.Interaction, stage: app_commands.Range[int, 1, 100], role: discord.Role):
+    if not await config_guard(interaction): return
+    if role.is_default() or role.managed:
+        return await reply_private(interaction, "Choose a normal, assignable server role.")
+    cfg = guild_config(interaction.guild.id)
+    cfg.setdefault("stageRoles", {})[str(stage)] = str(role.id)
+    save_state()
+    await reply_private(interaction, f"Stage {stage} now assigns {role.mention}.")
 
 @config_group.command(name="clan-register-logs", description="Set the clan registration review channel.")
 async def config_clan_logs(interaction: discord.Interaction, channel: discord.TextChannel):
@@ -1006,6 +1056,8 @@ async def config_clan_news(interaction: discord.Interaction, channel: discord.Te
 @config_group.command(name="questions", description="Set up to five DM application questions separated by |.")
 async def config_questions(interaction: discord.Interaction, questions: app_commands.Range[str, 1, 1000]):
     if not await config_guard(interaction): return
+    if not questions.strip() or len(questions) > 1000:
+        return await reply_private(interaction, "Provide 1 to 1000 characters of application questions.")
     qs = [q.strip() for q in questions.split("|") if q.strip()][:5]
     guild_config(interaction.guild.id)["applicationQuestions"] = qs; save_state()
     await reply_private(interaction, f"Saved {len(qs)} application question(s).")
@@ -1020,6 +1072,7 @@ async def config_show(interaction: discord.Interaction):
     lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId")]]
     jail_channels = c.get("jailChannelIds", [])
     lines.append("**Jail allowed channels:** " + (", ".join(f"<#{cid}>" for cid in jail_channels) if jail_channels else "None configured"))
+    lines.append("**Numbered stage roles:** " + (", ".join(f"Stage {number}: <@&{rid}>" for number, rid in sorted(c.get("stageRoles", {}).items(), key=lambda item: int(item[0]))) or "Not configured"))
     lines.append("**Stage power roles:** " + (", ".join(f"{name}: <@&{rid}>" for name, rid in c.get("stagePowerRoles", {}).items()) or "Not configured"))
     lines.append("**Stage rank roles:** " + (", ".join(f"{name}: <@&{rid}>" for name, rid in c.get("stageRankRoles", {}).items()) or "Not configured"))
     lines.append("**Questions:** " + (" | ".join(c.get("applicationQuestions", [])) or "Not configured"))
