@@ -89,7 +89,7 @@ async def get_prefix(client, message):
         return commands.when_mentioned_or(",")(client, message)
     return commands.when_mentioned_or(guild_config(message.guild.id).get("prefix", ","))(client, message)
 
-bot = commands.Bot(command_prefix=get_prefix, intents=intents)
+bot = commands.Bot(command_prefix=get_prefix, intents=intents, help_command=None)
 tree = bot.tree
 state: dict[str, Any] = {}
 
@@ -284,22 +284,58 @@ async def prefix_dm(user, message):
     except (discord.Forbidden, discord.HTTPException):
         pass
 
-@bot.command(name="modhelp", aliases=["moderation", "h"])
+@bot.command(name="help", aliases=["modhelp", "moderation", "h"])
 async def modhelp(ctx):
-    p = guild_config(ctx.guild.id).get("prefix", ",") if ctx.guild else "!"
-    await ctx.send(
-        f"**Moderation commands ({p})**\n"
-        f"{p}ban / {p}b @user [reason] | {p}unban / {p}ub user_id [reason] | {p}kick / {p}k @user [reason]\n"
-        f"{p}timeout / {p}to @user 10m [reason] | {p}untimeout / {p}uto @user [reason]\n"
-        f"{p}warn / {p}w @user [reason] | {p}warnings / {p}ws @user | {p}clearwarnings / {p}cw @user\n"
-        f"{p}purge / {p}p amount | {p}slowmode / {p}sm seconds | {p}lock / {p}l | {p}unlock / {p}ul [#channel]\n"
-        f"{p}bl @user [reason] | {p}unbl @user | {p}blcheck @user\n"
-        f"{p}prefix | {p}setprefix new_prefix"
+    p = guild_config(ctx.guild.id).get("prefix", ",") if ctx.guild else ","
+    embed = discord.Embed(
+        title="TSB-AF | Moderation Command Center",
+        description=("A quick reference for authorized moderation and server-management commands.\n"
+                     f"**Server prefix:** `{p}`  •  **Need help?** Contact the server's moderation team."),
+        color=CYAN,
+        timestamp=datetime.now(timezone.utc)
     )
+    embed.add_field(name="Member moderation", value=(
+        f"`{p}ban @member [reason]` — Permanently ban a member\n"
+        f"`{p}unban user_id [reason]` — Revoke a ban\n"
+        f"`{p}kick @member [reason]` — Remove a member\n"
+        f"`{p}timeout @member 10m [reason]` — Apply a timeout\n"
+        f"`{p}untimeout @member [reason]` — Remove a timeout\n"
+        f"`{p}warn @member [reason]` — Issue a warning"), inline=False)
+    embed.add_field(name="Cases & blacklist", value=(
+        f"`{p}warnings @member` — Review warning history\n"
+        f"`{p}clearwarnings @member` — Clear warning history\n"
+        f"`{p}bl @member [reason]` — Add to the server blacklist\n"
+        f"`{p}unbl @member` — Remove from the blacklist\n"
+        f"`{p}blcheck @member` — Check blacklist status"), inline=False)
+    embed.add_field(name="Channel management", value=(
+        f"`{p}purge amount` — Delete up to 100 recent messages\n"
+        f"`{p}slowmode seconds` — Configure channel slowmode\n"
+        f"`{p}lock [#channel]` / `{p}unlock [#channel]` — Manage channel access"), inline=False)
+    embed.add_field(name="Bot settings", value=(
+        f"`{p}prefix` — View the current prefix\n"
+        f"`{p}setprefix new_prefix` — Update the prefix (Manage Server)"), inline=False)
+    embed.set_footer(text="TSB-AF Moderation • Actions are recorded in the moderation log")
+    await ctx.send(embed=embed)
+
+async def send_action_confirmation(ctx, action, target, reason, case_id, details=None):
+    embed = discord.Embed(
+        title=f"Moderation Action • {action}",
+        description="The action was completed successfully and recorded in the moderation system.",
+        color=CYAN,
+        timestamp=datetime.now(timezone.utc)
+    )
+    embed.add_field(name="Member", value=f"{target.mention}\n`{target}`", inline=True)
+    embed.add_field(name="Moderator", value=ctx.author.mention, inline=True)
+    embed.add_field(name="Case ID", value=f"`#{case_id}`", inline=True)
+    if details:
+        embed.add_field(name="Duration", value=details, inline=True)
+    embed.add_field(name="Reason", value=reason[:1024], inline=False)
+    embed.set_footer(text="TSB-AF Moderation • Case recorded")
+    await ctx.send(embed=embed)
 
 @bot.command(name="prefix")
 async def show_prefix(ctx):
-    await ctx.send(f"Current prefix: {guild_config(ctx.guild.id).get('prefix', '!') if ctx.guild else '!'}")
+    await ctx.send(embed=discord.Embed(title="Server Prefix", description=f"Current prefix: `{guild_config(ctx.guild.id).get('prefix', ',') if ctx.guild else ','}`", color=CYAN))
 
 @bot.command(name="setprefix")
 @commands.guild_only()
@@ -309,7 +345,7 @@ async def set_prefix(ctx, prefix: str):
         return await ctx.send("Prefix must be 1–5 non-space characters.")
     guild_config(ctx.guild.id)["prefix"] = prefix
     save_state()
-    await ctx.send(f"Prefix changed to {prefix}")
+    await ctx.send(embed=discord.Embed(title="Server Prefix Updated", description=f"The command prefix is now `{prefix}`.", color=CYAN))
 
 @bot.command(name="ban", aliases=["b"])
 @commands.guild_only()
@@ -318,7 +354,7 @@ async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"
     await prefix_dm(member, f"You were banned from {ctx.guild.name}. Reason: {reason}")
     await ctx.guild.ban(member, reason=f"{ctx.author}: {reason}", delete_message_seconds=0)
     case = await prefix_case(ctx, "ban", member, reason)
-    await ctx.send(f"Banned {member.mention}. Case #{case}.")
+    await send_action_confirmation(ctx, "Ban", member, reason, case)
 
 @bot.command(name="unban", aliases=["ub"])
 @commands.guild_only()
@@ -330,7 +366,7 @@ async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
     except discord.NotFound:
         return await ctx.send("That user is not banned or the ID is invalid.")
     case = await prefix_case(ctx, "unban", user, reason)
-    await ctx.send(f"Unbanned {user}. Case #{case}.")
+    await send_action_confirmation(ctx, "Unban", user, reason, case)
 
 @bot.command(name="kick", aliases=["k"])
 @commands.guild_only()
@@ -339,7 +375,7 @@ async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided
     await prefix_dm(member, f"You were kicked from {ctx.guild.name}. Reason: {reason}")
     await ctx.guild.kick(member, reason=f"{ctx.author}: {reason}")
     case = await prefix_case(ctx, "kick", member, reason)
-    await ctx.send(f"Kicked {member.mention}. Case #{case}.")
+    await send_action_confirmation(ctx, "Kick", member, reason, case)
 
 @bot.command(name="timeout", aliases=["mute", "to"])
 @commands.guild_only()
@@ -351,7 +387,7 @@ async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="
     await member.timeout(delta, reason=f"{ctx.author}: {reason}")
     await prefix_dm(member, f"You were timed out in {ctx.guild.name} for {duration}. Reason: {reason}")
     case = await prefix_case(ctx, "timeout", member, f"{duration} — {reason}")
-    await ctx.send(f"Timed out {member.mention} for {duration}. Case #{case}.")
+    await send_action_confirmation(ctx, "Timeout", member, reason, case, details=duration)
 
 @bot.command(name="untimeout", aliases=["unmute", "uto"])
 @commands.guild_only()
@@ -359,7 +395,7 @@ async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="
 async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason provided"):
     await member.timeout(None, reason=f"{ctx.author}: {reason}")
     case = await prefix_case(ctx, "untimeout", member, reason)
-    await ctx.send(f"Removed timeout from {member.mention}. Case #{case}.")
+    await send_action_confirmation(ctx, "Timeout Removed", member, reason, case)
 
 @bot.command(name="warn", aliases=["w"])
 @commands.guild_only()
@@ -371,7 +407,7 @@ async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided
     save_state()
     case = await prefix_case(ctx, "warn", member, reason)
     await prefix_dm(member, f"You received a warning in {ctx.guild.name}. Reason: {reason}")
-    await ctx.send(f"Warned {member.mention}; total warnings: {len(rows)}. Case #{case}.")
+    await send_action_confirmation(ctx, f"Warning Issued • {len(rows)} Total", member, reason, case)
 
 @bot.command(name="warnings", aliases=["infractions", "ws"])
 @commands.guild_only()
@@ -507,15 +543,15 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         return await ctx.send("You need Manage Server to change the prefix.")
     if isinstance(error, commands.CheckFailure):
-        return await ctx.send("You do not have permission to use that moderation command.")
+        return await ctx.send(embed=discord.Embed(title="Access Denied", description="You do not have the required role or permissions to use this command.", color=discord.Color.red()))
     if isinstance(error, commands.MissingRequiredArgument):
         p = guild_config(ctx.guild.id).get("prefix",",") if ctx.guild else "!"
-        return await ctx.send(f"Missing argument: {error.param.name}. Use {p}modhelp.")
+        return await ctx.send(embed=discord.Embed(title="Missing Required Argument", description=f"`{error.param.name}` is required. Use `{p}help` to view command syntax.", color=discord.Color.orange()))
     if isinstance(error, commands.BadArgument):
-        return await ctx.send("I could not understand that argument. Mention a member or provide a valid user ID.")
+        return await ctx.send(embed=discord.Embed(title="Invalid Argument", description="I could not resolve that input. Mention a server member or provide a valid user ID, then try again.", color=discord.Color.orange()))
     if isinstance(error, discord.Forbidden):
-        return await ctx.send("I do not have permission, or my role is below the target member's role.")
-    await ctx.send(f"Command failed: {str(error)[:250]}")
+        return await ctx.send(embed=discord.Embed(title="Action Could Not Be Completed", description="The bot is missing a required permission, or its highest role is not above the target member. Check the role hierarchy and channel permissions.", color=discord.Color.red()))
+    await ctx.send(embed=discord.Embed(title="Command Error", description="The command could not be completed. Check the syntax and bot permissions; if the issue persists, contact an administrator.", color=discord.Color.red()))
 
 @tree.command(name="blacklist", description="Blacklist a user and create a moderation case.")
 @app_commands.describe(user="User to blacklist", reason="Reason for the blacklist")
