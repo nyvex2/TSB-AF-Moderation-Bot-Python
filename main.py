@@ -341,8 +341,7 @@ async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided")
     key = f"{ctx.guild.id}:{member.id}"
     if key in state["blacklists"]:
         return await ctx.send(f"{member.mention} is already blacklisted.")
-    case = state["nextCaseId"]
-    state["nextCaseId"] += 1
+    case = await prefix_case(ctx, "blacklist", member, reason)
     record = {"guildId":str(ctx.guild.id),"userId":str(member.id),"reason":reason,"moderatorId":str(ctx.author.id),"caseId":case,"status":"blacklisted","createdAt":now()}
     state["blacklists"][key] = record
     state["blacklistHistory"].append(record.copy())
@@ -352,7 +351,6 @@ async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided")
         await member.add_roles(role, reason=f"Blacklist case #{case}")
     save_state()
     await prefix_dm(member, f"You were blacklisted in {ctx.guild.name}. Reason: {reason}")
-    await prefix_case(ctx, "blacklist", member, reason)
     await ctx.send(f"Blacklisted {member.mention}. Case #{case}.")
 
 @bot.command(name="unbl", aliases=["unblacklist"])
