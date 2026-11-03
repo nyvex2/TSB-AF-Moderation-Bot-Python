@@ -41,3 +41,19 @@ Python rewrite of the TSB-AF Discord moderation, applications, clan registration
 
 ## Persistence and security
 All state is stored in MongoDB Atlas, not in GitHub or on the host disk. This keeps records across restarts and host changes as long as the same MongoDB database is used. Never commit your real Discord token or MongoDB URI; use host environment variables. The `.env` file is ignored by Git.
+
+
+## Prefix moderation commands
+
+The default text-command prefix is a comma (,). The bot also accepts command shortcuts:
+
+- ,b @user reason — ban; ,ub user_id — unban
+- ,k @user reason — kick
+- ,to @user 10m reason — timeout; ,uto @user — remove timeout
+- ,w @user reason — warn; ,ws @user — view warnings; ,cw @user — clear warnings
+- ,p 25 — purge; ,sm 5 — set slowmode
+- ,l / ,ul — lock / unlock the current channel
+- ,bl @user reason / ,unbl @user / ,blcheck @user
+- ,h — show the moderation help
+
+Full command names also work, for example ,timeout and ,ban. Use ,setprefix ! if you want to change the prefix. Prefix moderation commands require the appropriate staff permissions, and the bot needs the corresponding Discord permissions.
