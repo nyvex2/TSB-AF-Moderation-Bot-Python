@@ -180,7 +180,16 @@ async def blacklist_member(guild: discord.Guild, member: discord.Member, reason:
     role = await get_jail_role(guild)
     await ensure_jail_setup(guild, role)
     old_nickname = member.nick
+    bot_member = guild.me
+    if bot_member is None:
+        raise RuntimeError("Bot member is unavailable; cannot safely compare role hierarchy.")
+    # Save and remove every normal role the bot is allowed to manage. Keep @everyone,
+    # managed/integration roles, and roles above the bot's hierarchy untouched.
+    removable_roles = [r for r in member.roles if not r.is_default() and not r.managed and r.id != role.id and r < bot_member.top_role]
+    previous_role_ids = [str(r.id) for r in removable_roles]
     await member.add_roles(role, reason=f"Blacklist case #{case_id}")
+    if removable_roles:
+        await member.remove_roles(*removable_roles, reason=f"Blacklist case #{case_id}: remove previous roles")
     nickname_error = None
     try:
         await member.edit(nick="[ blacklisted ]", reason=f"Blacklist case #{case_id}")
@@ -190,6 +199,7 @@ async def blacklist_member(guild: discord.Guild, member: discord.Member, reason:
     record = state["blacklists"].get(key)
     if record is not None:
         record["previousNickname"] = old_nickname
+        record["previousRoleIds"] = previous_role_ids
         record["jailRoleId"] = str(role.id)
         if nickname_error:
             record["nicknameNote"] = nickname_error
@@ -200,6 +210,15 @@ async def unblacklist_member(guild: discord.Guild, member: discord.Member, recor
     role = guild.get_role(int(role_id)) if role_id else None
     if role and role in member.roles:
         await member.remove_roles(role, reason="User unblacklisted")
+    bot_member = guild.me
+    restore_roles = []
+    if bot_member:
+        for saved_id in record.get("previousRoleIds", []):
+            saved_role = guild.get_role(int(saved_id))
+            if saved_role and not saved_role.managed and saved_role < bot_member.top_role and saved_role not in member.roles:
+                restore_roles.append(saved_role)
+    if restore_roles:
+        await member.add_roles(*restore_roles, reason="Restore roles after unblacklist")
     try:
         await member.edit(nick=record.get("previousNickname"), reason="User unblacklisted")
     except discord.Forbidden:
@@ -678,6 +697,7 @@ async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided")
     except discord.Forbidden:
         state["blacklists"].pop(key, None)
         return await ctx.send("I cannot apply the jail role. Move my bot role above the member and grant Manage Roles/Manage Channels.")
+    state["blacklistHistory"][-1] = record.copy()
     save_state()
     embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {ctx.author.mention}\n**Reason:** {reason}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Case #{case} • TSBAF Moderation")
@@ -701,6 +721,8 @@ async def prefix_unbl(ctx, member: discord.Member):
     embed = discord.Embed(title="User Unblacklisted", description=f"**Member**\n{member.mention}\n\n**Moderator**\n{ctx.author.mention}\n\n**Original reason**\n{record['reason']}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Case #{case} • TSBAF Moderation")
     await ctx.send(embed=embed)
+    forwarded = await send_blacklist_log(ctx.guild, embed)
+    await ctx.send("Unblacklist case forwarded to bl logs." if forwarded else "Unblacklist completed. BL logs channel is not configured.")
 
 @bot.command(name="blcheck")
 @commands.guild_only()
@@ -770,6 +792,7 @@ async def blacklist(interaction: discord.Interaction, user: discord.User, reason
         state["blacklists"].pop(key, None)
         state["blacklistHistory"].pop()
         return await reply_private(interaction, "I cannot configure the jail. Give me Manage Roles and Manage Channels, and move my bot role above the target member.")
+    state["blacklistHistory"][-1] = record.copy()
     save_state()
     embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {interaction.user.mention}\n**Reason:** {reason}\n\n**Jail status:** Role applied • {('Nickname updated' if not state['blacklists'][key].get('nicknameNote') else 'Nickname could not be changed')}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Case #{case_id} • TSBAF Moderation")
@@ -800,7 +823,9 @@ async def unblacklist(interaction: discord.Interaction, user: discord.User):
     embed = discord.Embed(title="User Unblacklisted", description=f"**Unblacklisted by**\n{interaction.user.mention}\n\n**Member**\n{user.mention}\n\n**Original reason**\n{record['reason']}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Original Case #{record['caseId']} • TSBAF Moderation")
     await interaction.followup.send(embed=embed)
-    await send_log(interaction.guild, embed)
+    forwarded = await send_blacklist_log(interaction.guild, embed)
+    if not forwarded:
+        await interaction.followup.send(content="Unblacklist completed. BL logs channel is not configured.")
 
 @tree.command(name="blcheck", description="Check whether a user is currently blacklisted.")
 async def blcheck(interaction: discord.Interaction, user: discord.User):
