@@ -107,9 +107,9 @@ async def reply_private(interaction: discord.Interaction, content: str) -> None:
     embed = discord.Embed(description=content, color=CYAN)
     embed.set_footer(text="TSBAF Moderation")
     if interaction.response.is_done():
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=False)
     else:
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=False)
 
 async def send_log(guild: discord.Guild, embed: discord.Embed) -> None:
     channel_id = guild_config(guild.id).get("logChannelId")
@@ -836,7 +836,7 @@ async def blcheck(interaction: discord.Interaction, user: discord.User):
         return await reply_private(interaction, f"{user.mention} is **not blacklisted**.")
     embed = discord.Embed(title="Blacklist Check", description=f"**User**\n{user.mention}\n\n**Status**\nBlacklisted\n\n**Reason**\n{record['reason']}", color=CYAN)
     embed.set_footer(text=f"Case #{record['caseId']}")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed, ephemeral=False)
 
 @tree.command(name="say", description="Make the bot send a message.")
 @app_commands.describe(message="Message to send", channel="Destination channel (defaults to this channel)")
@@ -1001,7 +1001,7 @@ async def config_blacklist_role(interaction: discord.Interaction, role: discord.
 @config_group.command(name="jail-setup", description="Create/update the blacklist jail role and channel permissions.")
 async def config_jail_setup(interaction: discord.Interaction):
     if not await config_guard(interaction): return
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     role = await get_jail_role(interaction.guild)
     updated = await apply_jail_permissions(interaction.guild, role)
     guild_config(interaction.guild.id)["jailSetupComplete"] = True
@@ -1012,7 +1012,7 @@ async def config_jail_setup(interaction: discord.Interaction):
 @app_commands.describe(channel="Channel jailed members may access")
 async def config_jail_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     if not await config_guard(interaction): return
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     cfg = guild_config(interaction.guild.id)
     ids = {str(cid) for cid in cfg.get("jailChannelIds", [])}
     ids.add(str(channel.id))
@@ -1027,7 +1027,7 @@ async def config_jail_channel(interaction: discord.Interaction, channel: discord
 @app_commands.describe(channel="Channel to remove from jail access")
 async def config_jail_channel_remove(interaction: discord.Interaction, channel: discord.TextChannel):
     if not await config_guard(interaction): return
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await interaction.response.defer(ephemeral=False, thinking=True)
     cfg = guild_config(interaction.guild.id)
     cfg["jailChannelIds"] = [str(cid) for cid in cfg.get("jailChannelIds", []) if str(cid) != str(channel.id)]
     role = await get_jail_role(interaction.guild)
@@ -1161,7 +1161,7 @@ async def config_show(interaction: discord.Interaction):
     lines.append("**Stage power roles:** " + (", ".join(f"{name}: <@&{rid}>" for name, rid in c.get("stagePowerRoles", {}).items()) or "Not configured"))
     lines.append("**Stage rank roles:** " + (", ".join(f"{name}: <@&{rid}>" for name, rid in c.get("stageRankRoles", {}).items()) or "Not configured"))
     lines.append("**Questions:** " + (" | ".join(c.get("applicationQuestions", [])) or "Not configured"))
-    await interaction.response.send_message(embed=discord.Embed(title="Bot Configuration", description="\n".join(lines), color=CYAN), ephemeral=True)
+    await interaction.response.send_message(embed=discord.Embed(title="Bot Configuration", description="\n".join(lines), color=CYAN), ephemeral=False)
 
 @tree.command(name="apply", description="Start the application process in DMs.")
 async def apply(interaction: discord.Interaction):
