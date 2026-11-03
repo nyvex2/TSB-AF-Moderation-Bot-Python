@@ -69,8 +69,8 @@ intents.members = True
 intents.message_content = True
 async def get_prefix(client, message):
     if message.guild is None:
-        return commands.when_mentioned_or("!")(client, message)
-    return commands.when_mentioned_or(guild_config(message.guild.id).get("prefix", "!"))(client, message)
+        return commands.when_mentioned_or(",")(client, message)
+    return commands.when_mentioned_or(guild_config(message.guild.id).get("prefix", ","))(client, message)
 
 bot = commands.Bot(command_prefix=get_prefix, intents=intents)
 tree = bot.tree
@@ -178,15 +178,15 @@ async def prefix_dm(user, message):
     except (discord.Forbidden, discord.HTTPException):
         pass
 
-@bot.command(name="modhelp", aliases=["moderation"])
+@bot.command(name="modhelp", aliases=["moderation", "h", "help"])
 async def modhelp(ctx):
-    p = guild_config(ctx.guild.id).get("prefix", "!") if ctx.guild else "!"
+    p = guild_config(ctx.guild.id).get("prefix", ",") if ctx.guild else "!"
     await ctx.send(
         f"**Moderation commands ({p})**\n"
-        f"{p}ban @user [reason] | {p}unban user_id [reason] | {p}kick @user [reason]\n"
-        f"{p}timeout @user 10m [reason] | {p}untimeout @user [reason]\n"
-        f"{p}warn @user [reason] | {p}warnings @user | {p}clearwarnings @user\n"
-        f"{p}purge amount | {p}slowmode seconds | {p}lock [#channel] | {p}unlock [#channel]\n"
+        f"{p}ban / {p}b @user [reason] | {p}unban / {p}ub user_id [reason] | {p}kick / {p}k @user [reason]\n"
+        f"{p}timeout / {p}to @user 10m [reason] | {p}untimeout / {p}uto @user [reason]\n"
+        f"{p}warn / {p}w @user [reason] | {p}warnings / {p}ws @user | {p}clearwarnings / {p}cw @user\n"
+        f"{p}purge / {p}p amount | {p}slowmode / {p}sm seconds | {p}lock / {p}l | {p}unlock / {p}ul [#channel]\n"
         f"{p}bl @user [reason] | {p}unbl @user | {p}blcheck @user\n"
         f"{p}prefix | {p}setprefix new_prefix"
     )
@@ -205,7 +205,7 @@ async def set_prefix(ctx, prefix: str):
     save_state()
     await ctx.send(f"Prefix changed to {prefix}")
 
-@bot.command(name="ban")
+@bot.command(name="ban", aliases=["b"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -214,7 +214,7 @@ async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"
     case = await prefix_case(ctx, "ban", member, reason)
     await ctx.send(f"Banned {member.mention}. Case #{case}.")
 
-@bot.command(name="unban")
+@bot.command(name="unban", aliases=["ub"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
@@ -226,7 +226,7 @@ async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
     case = await prefix_case(ctx, "unban", user, reason)
     await ctx.send(f"Unbanned {user}. Case #{case}.")
 
-@bot.command(name="kick")
+@bot.command(name="kick", aliases=["k"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -235,7 +235,7 @@ async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided
     case = await prefix_case(ctx, "kick", member, reason)
     await ctx.send(f"Kicked {member.mention}. Case #{case}.")
 
-@bot.command(name="timeout", aliases=["mute"])
+@bot.command(name="timeout", aliases=["mute", "to"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="No reason provided"):
@@ -247,7 +247,7 @@ async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="
     case = await prefix_case(ctx, "timeout", member, f"{duration} — {reason}")
     await ctx.send(f"Timed out {member.mention} for {duration}. Case #{case}.")
 
-@bot.command(name="untimeout", aliases=["unmute"])
+@bot.command(name="untimeout", aliases=["unmute", "uto"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -255,7 +255,7 @@ async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason pro
     case = await prefix_case(ctx, "untimeout", member, reason)
     await ctx.send(f"Removed timeout from {member.mention}. Case #{case}.")
 
-@bot.command(name="warn")
+@bot.command(name="warn", aliases=["w"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -267,7 +267,7 @@ async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided
     await prefix_dm(member, f"You received a warning in {ctx.guild.name}. Reason: {reason}")
     await ctx.send(f"Warned {member.mention}; total warnings: {len(rows)}. Case #{case}.")
 
-@bot.command(name="warnings", aliases=["infractions"])
+@bot.command(name="warnings", aliases=["infractions", "ws"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_warnings(ctx, member: discord.Member):
@@ -277,7 +277,7 @@ async def prefix_warnings(ctx, member: discord.Member):
     lines = [f"{i}. {r['reason']} — <@{r['moderatorId']}>" for i,r in enumerate(rows[-15:],1)]
     await ctx.send(embed=discord.Embed(title=f"Warnings for {member}",description="\n".join(lines)[:4000]))
 
-@bot.command(name="clearwarnings")
+@bot.command(name="clearwarnings", aliases=["cw"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_clearwarnings(ctx, member: discord.Member):
@@ -288,7 +288,7 @@ async def prefix_clearwarnings(ctx, member: discord.Member):
     await prefix_case(ctx, "clearwarnings", member, f"Cleared {count} warning(s)")
     await ctx.send(f"Cleared {count} warning(s) for {member.mention}.")
 
-@bot.command(name="purge", aliases=["clear"])
+@bot.command(name="purge", aliases=["clear", "p"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_purge(ctx, amount: int):
@@ -299,7 +299,7 @@ async def prefix_purge(ctx, amount: int):
         msg = await ctx.send(f"Deleted {max(0,len(deleted)-1)} message(s).")
         await msg.delete(delay=5)
 
-@bot.command(name="slowmode")
+@bot.command(name="slowmode", aliases=["sm"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_slowmode(ctx, seconds: int):
@@ -310,7 +310,7 @@ async def prefix_slowmode(ctx, seconds: int):
     await ctx.channel.edit(slowmode_delay=seconds, reason=f"Set by {ctx.author}")
     await ctx.send(f"Slowmode set to {seconds} second(s).")
 
-@bot.command(name="lock")
+@bot.command(name="lock", aliases=["l"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_lock(ctx, channel: discord.TextChannel = None):
@@ -322,7 +322,7 @@ async def prefix_lock(ctx, channel: discord.TextChannel = None):
     await channel.set_permissions(ctx.guild.default_role, overwrite=ow, reason=f"Locked by {ctx.author}")
     await ctx.send(f"Locked {channel.mention}.")
 
-@bot.command(name="unlock")
+@bot.command(name="unlock", aliases=["ul"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_unlock(ctx, channel: discord.TextChannel = None):
@@ -388,7 +388,7 @@ async def on_command_error(ctx, error):
     if isinstance(error, commands.CheckFailure):
         return await ctx.send("You do not have permission to use that moderation command.")
     if isinstance(error, commands.MissingRequiredArgument):
-        p = guild_config(ctx.guild.id).get("prefix","!") if ctx.guild else "!"
+        p = guild_config(ctx.guild.id).get("prefix",",") if ctx.guild else "!"
         return await ctx.send(f"Missing argument: {error.param.name}. Use {p}modhelp.")
     if isinstance(error, commands.BadArgument):
         return await ctx.send("I could not understand that argument. Mention a member or provide a valid user ID.")
