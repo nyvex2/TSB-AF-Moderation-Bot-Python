@@ -44,7 +44,17 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def guild_config(guild_id: int) -> dict[str, Any]:
-    return state["guilds"].setdefault(str(guild_id), {"applicationQuestions": []})
+    cfg = state["guilds"].setdefault(str(guild_id), {"applicationQuestions": []})
+    power_roles = cfg.setdefault("stagePowerRoles", {})
+    renamed = False
+    for old_label, new_label in (("weak", "low"), ("strong", "high"), ("stable", "mid")):
+        if old_label in power_roles:
+            power_roles.setdefault(new_label, power_roles[old_label])
+            del power_roles[old_label]
+            renamed = True
+    if renamed:
+        save_state()
+    return cfg
 
 def is_admin(interaction: discord.Interaction) -> bool:
     p = interaction.user.guild_permissions if isinstance(interaction.user, discord.Member) else None
@@ -831,7 +841,8 @@ async def embed_say(interaction: discord.Interaction, title: app_commands.Range[
 async def stage_power_autocomplete(interaction: discord.Interaction, current: str):
     cfg = guild_config(interaction.guild.id) if interaction.guild else {}
     options = cfg.get("stagePowerRoles", {})
-    return [app_commands.Choice(name=name[:100], value=name) for name in options if current.lower() in name.lower()][:25]
+    labels = ("low", "mid", "high")
+    return [app_commands.Choice(name=name.title(), value=name) for name in labels if name in options and current.lower() in name][:25]
 
 async def stage_rank_autocomplete(interaction: discord.Interaction, current: str):
     cfg = guild_config(interaction.guild.id) if interaction.guild else {}
@@ -839,7 +850,7 @@ async def stage_rank_autocomplete(interaction: discord.Interaction, current: str
     return [app_commands.Choice(name=name[:100], value=name) for name in options if current.lower() in name.lower()][:25]
 
 @tree.command(name="stage", description="Award a tryout stage and its configured power/rank roles.")
-@app_commands.describe(user="Player who passed", stage="Stage number", power="Configured power role, such as Weak or Strong", rank="Configured rank role")
+@app_commands.describe(user="Player who passed", stage="Stage number", power="Configured power level: Low, Mid, or High", rank="Configured rank role")
 @app_commands.autocomplete(power=stage_power_autocomplete, rank=stage_rank_autocomplete)
 async def stage(interaction: discord.Interaction, user: discord.Member, stage: app_commands.Range[int, 1, 100], power: str, rank: str):
     if not interaction.guild:
@@ -850,6 +861,8 @@ async def stage(interaction: discord.Interaction, user: discord.Member, stage: a
     if not (is_admin(interaction) or is_host):
         return await reply_private(interaction, "Only members with the configured tryout-host role can use /stage.")
     power_key, rank_key = power.strip().lower(), rank.strip().lower()
+    if power_key not in {"low", "mid", "high"}:
+        return await reply_private(interaction, "Power must be `low`, `mid`, or `high`.")
     stage_id = cfg.get("stageRoles", {}).get(str(stage))
     power_id = cfg.get("stagePowerRoles", {}).get(power_key)
     rank_id = cfg.get("stageRankRoles", {}).get(rank_key)
@@ -1004,18 +1017,18 @@ async def config_tryout_role(interaction: discord.Interaction, role: discord.Rol
     guild_config(interaction.guild.id)["tryoutHostRoleId"] = str(role.id); save_state()
     await reply_private(interaction, f"Tryout host role set to {role.mention}.")
 
-@config_group.command(name="stage-power-role", description="Map a power label (Weak/Strong/Stable) to an existing role.")
-@app_commands.describe(power="Power label used by /stage", role="Existing server role to assign")
-async def config_stage_power_role(interaction: discord.Interaction, power: app_commands.Range[str, 1, 30], role: discord.Role):
+@config_group.command(name="stage-power-role", description="Map Low, Mid, or High power to an existing role.")
+@app_commands.choices(power=[app_commands.Choice(name="Low", value="low"), app_commands.Choice(name="Mid", value="mid"), app_commands.Choice(name="High", value="high")])
+@app_commands.describe(power="Power level used by /stage", role="Existing server role to assign")
+async def config_stage_power_role(interaction: discord.Interaction, power: app_commands.Choice[str], role: discord.Role):
     if not await config_guard(interaction): return
-    if not power.strip() or len(power.strip()) > 30:
-        return await reply_private(interaction, "Power labels must be between 1 and 30 characters.")
+    power_key = power.value
     if role.is_default() or role.managed:
         return await reply_private(interaction, "Choose a normal, assignable server role.")
     cfg = guild_config(interaction.guild.id)
-    cfg.setdefault("stagePowerRoles", {})[power.strip().lower()] = str(role.id)
+    cfg.setdefault("stagePowerRoles", {})[power_key] = str(role.id)
     save_state()
-    await reply_private(interaction, f"Stage power `{power.strip().lower()}` now assigns {role.mention}. It will appear in /stage autocomplete.")
+    await reply_private(interaction, f"Stage power `{power_key}` now assigns {role.mention}. It will appear in /stage autocomplete.")
 
 @config_group.command(name="stage-rank-role", description="Map a rank label to an existing server role.")
 @app_commands.describe(rank="Rank label used by /stage", role="Existing server role to assign")
@@ -1042,16 +1055,18 @@ async def config_stage_role(interaction: discord.Interaction, stage: app_command
     await reply_private(interaction, f"Stage {stage} now assigns {role.mention}.")
 
 @config_group.command(name="stage-power-role-remove", description="Remove an incorrect power-to-role mapping.")
-@app_commands.describe(power="Power label to remove, such as weak or strong")
-async def config_stage_power_role_remove(interaction: discord.Interaction, power: app_commands.Range[str, 1, 30]):
+@app_commands.choices(power=[app_commands.Choice(name="Low", value="low"), app_commands.Choice(name="Mid", value="mid"), app_commands.Choice(name="High", value="high")])
+@app_commands.describe(power="Power level to remove")
+async def config_stage_power_role_remove(interaction: discord.Interaction, power: app_commands.Choice[str]):
     if not await config_guard(interaction): return
     cfg = guild_config(interaction.guild.id)
+    power_key = power.value
     mapping = cfg.setdefault("stagePowerRoles", {})
-    removed = mapping.pop(power.strip().lower(), None)
+    removed = mapping.pop(power_key, None)
     if not removed:
-        return await reply_private(interaction, f"No power mapping exists for `{power.strip().lower()}`.")
+        return await reply_private(interaction, f"No power mapping exists for `{power_key}`.")
     save_state()
-    await reply_private(interaction, f"Removed the power mapping for `{power.strip().lower()}`. You can now set it again with `/config stage-power-role`.")
+    await reply_private(interaction, f"Removed the power mapping for `{power_key}`. You can now set it again with `/config stage-power-role`.")
 
 @config_group.command(name="stage-rank-role-remove", description="Remove an incorrect rank-to-role mapping.")
 @app_commands.describe(rank="Rank label to remove")
@@ -1084,7 +1099,7 @@ async def config_stage_reset(interaction: discord.Interaction):
     cfg["stagePowerRoles"] = {}
     cfg["stageRankRoles"] = {}
     save_state()
-    await reply_private(interaction, "All stage, power, and rank role mappings have been reset. The tryout-host permission role was kept. Reconfigure them with `/config stage-role`, `/config stage-power-role`, and `/config stage-rank-role`.")
+    await reply_private(interaction, "All stage, power, and rank role mappings have been reset. The tryout-host permission role was kept. Reconfigure power roles with the labels `low`, `mid`, and `high` using `/config stage-power-role`.")
 
 @config_group.command(name="clan-register-logs", description="Set the clan registration review channel.")
 async def config_clan_logs(interaction: discord.Interaction, channel: discord.TextChannel):
