@@ -7,7 +7,7 @@ from typing import Any
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
@@ -26,7 +26,7 @@ mongo = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=10000)
 collection = mongo[MONGODB_DB]["state"]
 DEFAULT_DB: dict[str, Any] = {
     "nextCaseId": 1, "guilds": {}, "blacklists": {}, "blacklistHistory": [], "moderationCases": [], "warnings": {},
-    "stages": [], "applications": {}, "clanRegistrations": {}, "clanMains": []
+    "stages": [], "applications": {}, "clanRegistrations": {}, "clanMains": [], "tempBans": [], "modNotes": {}
 }
 
 def load_state() -> dict[str, Any]:
@@ -289,7 +289,7 @@ async def modhelp(ctx):
     p = guild_config(ctx.guild.id).get("prefix", ",") if ctx.guild else ","
     embed = discord.Embed(
         title="TSB-AF | Moderation Command Center",
-        description=("A quick reference for authorized moderation and server-management commands.\n"
+        description=("A quick reference for authorized moderation and server-management commands.\nSlash commands are also available for the core moderation actions.\n"
                      f"**Server prefix:** `{p}`  •  **Need help?** Contact the server's moderation team."),
         color=CYAN,
         timestamp=datetime.now(timezone.utc)
@@ -300,7 +300,11 @@ async def modhelp(ctx):
         f"`{p}kick @member [reason]` — Remove a member\n"
         f"`{p}timeout @member 10m [reason]` — Apply a timeout\n"
         f"`{p}untimeout @member [reason]` — Remove a timeout\n"
-        f"`{p}warn @member [reason]` — Issue a warning"), inline=False)
+        f"`{p}warn @member [reason]` — Issue a warning\n"
+        f"`{p}softban @member [reason]` — Ban, clear recent messages, then unban\n"
+        f"`{p}tempban @member 7d [reason]` — Apply a timed ban\n"
+        f"`{p}nick @member nickname` — Update a member nickname\n"
+        f"`{p}roleadd @member @role` / `{p}roleremove @member @role` — Manage member roles"), inline=False)
     embed.add_field(name="Cases & blacklist", value=(
         f"`{p}warnings @member` — Review warning history\n"
         f"`{p}clearwarnings @member` — Clear warning history\n"
@@ -308,12 +312,18 @@ async def modhelp(ctx):
         f"`{p}unbl @member` — Remove from the blacklist\n"
         f"`{p}blcheck @member` — Check blacklist status"), inline=False)
     embed.add_field(name="Channel management", value=(
-        f"`{p}purge amount` — Delete up to 100 recent messages\n"
+        f"`{p}purge amount` — Delete recent messages\n"
+        f"`{p}purgeuser @member amount` — Delete a member's recent messages\n"
+        f"`{p}purgebots amount` / `{p}purgelinks amount` / `{p}purgefiles amount` — Filtered cleanup\n"
         f"`{p}slowmode seconds` — Configure channel slowmode\n"
-        f"`{p}lock [#channel]` / `{p}unlock [#channel]` — Manage channel access"), inline=False)
+        f"`{p}lock [#channel]` / `{p}unlock [#channel]` — Manage channel access\n"
+        f"`{p}voicekick @member` / `{p}voicemute @member` / `{p}voiceunmute @member` — Voice moderation"), inline=False)
     embed.add_field(name="Bot settings", value=(
         f"`{p}prefix` — View the current prefix\n"
-        f"`{p}setprefix new_prefix` — Update the prefix (Manage Server)"), inline=False)
+        f"`{p}setprefix new_prefix` — Update the prefix (Manage Server)\n"
+        f"`{p}case case_id` — View a moderation case\n"
+        f"`{p}history @member` — View a member's case history\n"
+        f"`{p}note @member text` / `{p}notes @member` — Manage staff-only notes"), inline=False)
     embed.set_footer(text="TSB-AF Moderation • Actions are recorded in the moderation log")
     await ctx.send(embed=embed)
 
@@ -347,7 +357,7 @@ async def set_prefix(ctx, prefix: str):
     save_state()
     await ctx.send(embed=discord.Embed(title="Server Prefix Updated", description=f"The command prefix is now `{prefix}`.", color=CYAN))
 
-@bot.command(name="ban", aliases=["b"])
+@bot.hybrid_command(name="ban", aliases=["b"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -356,7 +366,7 @@ async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"
     case = await prefix_case(ctx, "ban", member, reason)
     await send_action_confirmation(ctx, "Ban", member, reason, case)
 
-@bot.command(name="unban", aliases=["ub"])
+@bot.hybrid_command(name="unban", aliases=["ub"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
@@ -368,7 +378,7 @@ async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
     case = await prefix_case(ctx, "unban", user, reason)
     await send_action_confirmation(ctx, "Unban", user, reason, case)
 
-@bot.command(name="kick", aliases=["k"])
+@bot.hybrid_command(name="kick", aliases=["k"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -377,7 +387,7 @@ async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided
     case = await prefix_case(ctx, "kick", member, reason)
     await send_action_confirmation(ctx, "Kick", member, reason, case)
 
-@bot.command(name="timeout", aliases=["mute", "to"])
+@bot.hybrid_command(name="timeout", aliases=["mute", "to"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="No reason provided"):
@@ -389,7 +399,7 @@ async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="
     case = await prefix_case(ctx, "timeout", member, f"{duration} — {reason}")
     await send_action_confirmation(ctx, "Timeout", member, reason, case, details=duration)
 
-@bot.command(name="untimeout", aliases=["unmute", "uto"])
+@bot.hybrid_command(name="untimeout", aliases=["unmute", "uto"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -397,7 +407,7 @@ async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason pro
     case = await prefix_case(ctx, "untimeout", member, reason)
     await send_action_confirmation(ctx, "Timeout Removed", member, reason, case)
 
-@bot.command(name="warn", aliases=["w"])
+@bot.hybrid_command(name="warn", aliases=["w"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided"):
@@ -409,7 +419,7 @@ async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided
     await prefix_dm(member, f"You received a warning in {ctx.guild.name}. Reason: {reason}")
     await send_action_confirmation(ctx, f"Warning Issued • {len(rows)} Total", member, reason, case)
 
-@bot.command(name="warnings", aliases=["infractions", "ws"])
+@bot.hybrid_command(name="warnings", aliases=["infractions", "ws"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_warnings(ctx, member: discord.Member):
@@ -419,7 +429,7 @@ async def prefix_warnings(ctx, member: discord.Member):
     lines = [f"{i}. {r['reason']} — <@{r['moderatorId']}>" for i,r in enumerate(rows[-15:],1)]
     await ctx.send(embed=discord.Embed(title=f"Warnings for {member}",description="\n".join(lines)[:4000], color=CYAN))
 
-@bot.command(name="clearwarnings", aliases=["cw"])
+@bot.hybrid_command(name="clearwarnings", aliases=["cw"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_clearwarnings(ctx, member: discord.Member):
@@ -430,7 +440,7 @@ async def prefix_clearwarnings(ctx, member: discord.Member):
     await prefix_case(ctx, "clearwarnings", member, f"Cleared {count} warning(s)")
     await ctx.send(f"Cleared {count} warning(s) for {member.mention}.")
 
-@bot.command(name="purge", aliases=["clear", "p"])
+@bot.hybrid_command(name="purge", aliases=["clear", "p"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_purge(ctx, amount: int):
@@ -441,7 +451,7 @@ async def prefix_purge(ctx, amount: int):
         msg = await ctx.send(f"Deleted {max(0,len(deleted)-1)} message(s).")
         await msg.delete(delay=5)
 
-@bot.command(name="slowmode", aliases=["sm"])
+@bot.hybrid_command(name="slowmode", aliases=["sm"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_slowmode(ctx, seconds: int):
@@ -452,7 +462,7 @@ async def prefix_slowmode(ctx, seconds: int):
     await ctx.channel.edit(slowmode_delay=seconds, reason=f"Set by {ctx.author}")
     await ctx.send(f"Slowmode set to {seconds} second(s).")
 
-@bot.command(name="lock", aliases=["l"])
+@bot.hybrid_command(name="lock", aliases=["l"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_lock(ctx, channel: discord.TextChannel = None):
@@ -464,7 +474,7 @@ async def prefix_lock(ctx, channel: discord.TextChannel = None):
     await channel.set_permissions(ctx.guild.default_role, overwrite=ow, reason=f"Locked by {ctx.author}")
     await ctx.send(f"Locked {channel.mention}.")
 
-@bot.command(name="unlock", aliases=["ul"])
+@bot.hybrid_command(name="unlock", aliases=["ul"])
 @commands.guild_only()
 @commands.check(prefix_staff_check)
 async def prefix_unlock(ctx, channel: discord.TextChannel = None):
@@ -475,6 +485,172 @@ async def prefix_unlock(ctx, channel: discord.TextChannel = None):
     ow.send_messages = None
     await channel.set_permissions(ctx.guild.default_role, overwrite=ow, reason=f"Unlocked by {ctx.author}")
     await ctx.send(f"Unlocked {channel.mention}.")
+
+@bot.hybrid_command(name="softban", description="Ban a member and immediately unban them to clear recent messages.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def softban(ctx, member: discord.Member, *, reason="No reason provided"):
+    if member == ctx.author or member == ctx.guild.owner or member.top_role >= ctx.author.top_role:
+        return await ctx.send("This member cannot be softbanned due to role hierarchy or target restrictions.")
+    await prefix_dm(member, f"You were softbanned from {ctx.guild.name}. Reason: {reason}")
+    await ctx.guild.ban(member, reason=f"Softban by {ctx.author}: {reason}", delete_message_seconds=86400)
+    await ctx.guild.unban(discord.Object(id=member.id), reason=f"Softban completed by {ctx.author}")
+    case = await prefix_case(ctx, "softban", member, reason)
+    await send_action_confirmation(ctx, "Softban", member, reason, case, details="1 day of messages removed")
+
+@bot.hybrid_command(name="tempban", description="Temporarily ban a member for a specified duration.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def tempban(ctx, member: discord.Member, duration: str, *, reason="No reason provided"):
+    delta = parse_duration(duration)
+    if delta is None:
+        return await ctx.send("Use a duration such as `30m`, `12h`, or `7d` (maximum 28 days).")
+    if member == ctx.author or member == ctx.guild.owner or member.top_role >= ctx.author.top_role:
+        return await ctx.send("This member cannot be banned due to role hierarchy or target restrictions.")
+    await prefix_dm(member, f"You were temporarily banned from {ctx.guild.name} for {duration}. Reason: {reason}")
+    await ctx.guild.ban(member, reason=f"Temporary ban by {ctx.author}: {reason}", delete_message_seconds=0)
+    case = await prefix_case(ctx, "tempban", member, f"Duration: {duration} • {reason}")
+    state.setdefault("tempBans", []).append({"guildId":str(ctx.guild.id),"userId":str(member.id),"unbanAt":(datetime.now(timezone.utc)+delta).isoformat(),"caseId":case})
+    save_state()
+    await send_action_confirmation(ctx, "Temporary Ban", member, reason, case, details=duration)
+
+@bot.hybrid_command(name="nick", description="Change a member's server nickname.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def nick(ctx, member: discord.Member, *, nickname: str = None):
+    old = member.display_name
+    await member.edit(nick=nickname, reason=f"Nickname updated by {ctx.author}")
+    case = await prefix_case(ctx, "nickname", member, f"{old} → {nickname or 'Reset to username'}")
+    await send_action_confirmation(ctx, "Nickname Updated", member, f"{old} → {nickname or 'Reset to username'}", case)
+
+@bot.hybrid_command(name="roleadd", description="Add a role to a member.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def roleadd(ctx, member: discord.Member, role: discord.Role):
+    if role.is_default() or role.managed or role >= ctx.guild.me.top_role or (not ctx.author.guild_permissions.administrator and role >= ctx.author.top_role):
+        return await ctx.send("That role cannot be assigned due to staff or bot role hierarchy.")
+    await member.add_roles(role, reason=f"Role assigned by {ctx.author}")
+    case = await prefix_case(ctx, "role-add", member, f"Added role {role.name} ({role.id})")
+    await send_action_confirmation(ctx, "Role Added", member, f"Added {role.mention}", case)
+
+@bot.hybrid_command(name="roleremove", description="Remove a role from a member.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def roleremove(ctx, member: discord.Member, role: discord.Role):
+    if role.is_default() or role.managed or role >= ctx.guild.me.top_role or (not ctx.author.guild_permissions.administrator and role >= ctx.author.top_role):
+        return await ctx.send("That role cannot be removed due to staff or bot role hierarchy.")
+    await member.remove_roles(role, reason=f"Role removed by {ctx.author}")
+    case = await prefix_case(ctx, "role-remove", member, f"Removed role {role.name} ({role.id})")
+    await send_action_confirmation(ctx, "Role Removed", member, f"Removed {role.mention}", case)
+
+async def purge_matching(ctx, amount: int, predicate, action: str, target=None):
+    if not 1 <= amount <= 100:
+        return await ctx.send("Choose an amount from 1 to 100.")
+    if not isinstance(ctx.channel, (discord.TextChannel, discord.Thread)):
+        return await ctx.send("This command can only be used in a text channel or thread.")
+    matched = 0
+    def limited_check(message):
+        nonlocal matched
+        if matched >= amount or not predicate(message):
+            return False
+        matched += 1
+        return True
+    deleted = await ctx.channel.purge(limit=1000, check=limited_check, bulk=True)
+    case = await prefix_case(ctx, action, target or ctx.author, f"Deleted {len(deleted)} messages in {ctx.channel.mention}")
+    msg = await ctx.send(embed=discord.Embed(title="Message Cleanup Complete", description=f"**Deleted:** {len(deleted)}\n**Channel:** {ctx.channel.mention}\n**Case:** `#{case}`", color=CYAN))
+    await msg.delete(delay=8)
+
+@bot.hybrid_command(name="purgeuser", description="Delete recent messages from one member in this channel.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def purgeuser(ctx, member: discord.Member, amount: int):
+    if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
+    await purge_matching(ctx, amount, lambda m: m.author.id == member.id, "purge-user", target=member)
+
+@bot.hybrid_command(name="purgebots", description="Delete recent messages sent by bots in this channel.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def purgebots(ctx, amount: int):
+    if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
+    await purge_matching(ctx, amount, lambda m: m.author.bot, "purge-bots")
+
+@bot.hybrid_command(name="purgelinks", description="Delete recent messages containing links.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def purgelinks(ctx, amount: int):
+    if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
+    await purge_matching(ctx, amount, lambda m: bool(re.search(r"https?://|discord\.gg/", m.content, re.I)), "purge-links")
+
+@bot.hybrid_command(name="purgefiles", description="Delete recent messages containing file attachments.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def purgefiles(ctx, amount: int):
+    if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
+    await purge_matching(ctx, amount, lambda m: bool(m.attachments), "purge-files")
+
+@bot.hybrid_command(name="case", description="Look up a moderation case by its case ID.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def case_lookup(ctx, case_id: int):
+    record = next((r for r in reversed(state.get("moderationCases", [])) if int(r.get("caseId", 0)) == case_id and str(r.get("guildId")) == str(ctx.guild.id)), None)
+    if not record: return await ctx.send("No moderation case with that ID was found in this server.")
+    embed = discord.Embed(title=f"Moderation Case #{case_id}", description=f"**Action:** {record.get('action','Unknown').title()}\n**Member:** <@{record.get('userId')}>\n**Moderator:** <@{record.get('moderatorId')}>\n**Reason:** {record.get('reason','No reason recorded')}\n**Created:** {record.get('createdAt','Unknown')}", color=CYAN)
+    await ctx.send(embed=embed)
+
+@bot.hybrid_command(name="history", description="View recent moderation cases for a member.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def member_history(ctx, member: discord.User):
+    rows = [r for r in state.get("moderationCases", []) if str(r.get("guildId")) == str(ctx.guild.id) and str(r.get("userId")) == str(member.id)][-10:]
+    if not rows: return await ctx.send(f"No moderation history found for {member.mention}.")
+    lines = [f"`#{r['caseId']}` **{r['action'].title()}** • {r.get('reason','No reason')[:120]}" for r in reversed(rows)]
+    await ctx.send(embed=discord.Embed(title=f"Moderation History • {member}", description="\n".join(lines), color=CYAN))
+
+@bot.hybrid_command(name="note", description="Add a private staff note to a member's record.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def mod_note(ctx, member: discord.User, *, note: str):
+    key = f"{ctx.guild.id}:{member.id}"
+    rows = state.setdefault("modNotes", {}).setdefault(key, [])
+    rows.append({"note":note[:1000],"moderatorId":str(ctx.author.id),"createdAt":now()})
+    save_state()
+    await ctx.send(embed=discord.Embed(title="Staff Note Added", description=f"A private note was saved to {member.mention}'s moderation record.\n**Total notes:** {len(rows)}", color=CYAN))
+
+@bot.hybrid_command(name="notes", description="View staff-only notes on a member.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def mod_notes(ctx, member: discord.User):
+    rows = state.get("modNotes", {}).get(f"{ctx.guild.id}:{member.id}", [])[-10:]
+    if not rows: return await ctx.send(f"No staff notes are stored for {member.mention}.")
+    lines = [f"**{i}.** {r['note']}\n<text>By <@{r['moderatorId']}> • {r['createdAt']}</text>" for i,r in enumerate(rows,1)]
+    await ctx.send(embed=discord.Embed(title=f"Staff Notes • {member}", description="\n\n".join(lines)[:4000], color=CYAN))
+
+@bot.hybrid_command(name="voicekick", description="Disconnect a member from their current voice channel.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def voicekick(ctx, member: discord.Member, *, reason="No reason provided"):
+    if not member.voice or not member.voice.channel: return await ctx.send("That member is not connected to a voice channel.")
+    await member.move_to(None, reason=f"Voice disconnect by {ctx.author}: {reason}")
+    case = await prefix_case(ctx, "voice-disconnect", member, reason)
+    await send_action_confirmation(ctx, "Voice Disconnect", member, reason, case)
+
+@bot.hybrid_command(name="voicemute", description="Server-mute a member in voice channels.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def voicemute(ctx, member: discord.Member, *, reason="No reason provided"):
+    if not member.voice: return await ctx.send("That member is not connected to a voice channel.")
+    await member.edit(mute=True, reason=f"Server mute by {ctx.author}: {reason}")
+    case = await prefix_case(ctx, "voice-mute", member, reason)
+    await send_action_confirmation(ctx, "Voice Mute", member, reason, case)
+
+@bot.hybrid_command(name="voiceunmute", description="Remove a server mute from a member.")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def voiceunmute(ctx, member: discord.Member, *, reason="No reason provided"):
+    if not member.voice: return await ctx.send("That member is not connected to a voice channel.")
+    await member.edit(mute=False, reason=f"Server unmute by {ctx.author}: {reason}")
+    case = await prefix_case(ctx, "voice-unmute", member, reason)
+    await send_action_confirmation(ctx, "Voice Unmute", member, reason, case)
 
 @bot.command(name="bl", aliases=["blacklist"])
 @commands.guild_only()
@@ -900,8 +1076,38 @@ async def main(interaction: discord.Interaction, code: app_commands.Range[str, 6
             await channel.send(embed=discord.Embed(title="Clan Mained", description=f"{interaction.user.mention} has mained **{record['clanName']}**.\n\n**Clan Leader:** <@{record['userId']}>", color=CYAN, timestamp=datetime.now(timezone.utc)))
     await reply_private(interaction, f"You have successfully mained **{record['clanName']}**. The code has been used.")
 
+@tasks.loop(minutes=1)
+async def process_temporary_bans():
+    entries = state.setdefault("tempBans", [])
+    current = datetime.now(timezone.utc)
+    changed = False
+    for entry in list(entries):
+        try:
+            expires = datetime.fromisoformat(entry["unbanAt"])
+            if expires.tzinfo is None: expires = expires.replace(tzinfo=timezone.utc)
+            if expires > current: continue
+            guild = bot.get_guild(int(entry["guildId"]))
+            if guild is None: continue
+            user_obj = discord.Object(id=int(entry["userId"]))
+            try:
+                await guild.unban(user_obj, reason=f"Temporary ban expired • Case #{entry.get('caseId','?')}")
+            except discord.NotFound:
+                pass
+            except (discord.Forbidden, discord.HTTPException):
+                continue
+            embed = discord.Embed(title="Temporary Ban Expired", description=f"**Member ID:** `{entry['userId']}`\n**Original case:** `#{entry.get('caseId','?')}`\nThe scheduled unban was processed.", color=CYAN, timestamp=current)
+            embed.set_footer(text="TSB-AF Moderation • Automated action")
+            await send_log(guild, embed)
+            entries.remove(entry)
+            changed = True
+        except (KeyError, ValueError, TypeError):
+            continue
+    if changed: save_state()
+
 @bot.event
 async def on_ready():
+    if not process_temporary_bans.is_running():
+        process_temporary_bans.start()
     print(f"Logged in as {bot.user} ({bot.user.id})")
     if not getattr(bot, "_synced", False):
         if GUILD_ID:
