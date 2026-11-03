@@ -178,7 +178,7 @@ async def prefix_dm(user, message):
     except (discord.Forbidden, discord.HTTPException):
         pass
 
-@bot.command(name="modhelp", aliases=["moderation", "h", "help"])
+@bot.command(name="modhelp", aliases=["moderation", "h"])
 async def modhelp(ctx):
     p = guild_config(ctx.guild.id).get("prefix", ",") if ctx.guild else "!"
     await ctx.send(
