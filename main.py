@@ -2,7 +2,7 @@ import os
 import re
 import asyncio
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import discord
@@ -25,7 +25,7 @@ if not MONGODB_URI:
 mongo = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=10000)
 collection = mongo[MONGODB_DB]["state"]
 DEFAULT_DB: dict[str, Any] = {
-    "nextCaseId": 1, "guilds": {}, "blacklists": {}, "blacklistHistory": [],
+    "nextCaseId": 1, "guilds": {}, "blacklists": {}, "blacklistHistory": [], "moderationCases": [], "warnings": {},
     "stages": [], "applications": {}, "clanRegistrations": {}, "clanMains": []
 }
 
@@ -67,7 +67,12 @@ def staff_button(interaction: discord.Interaction) -> bool:
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+async def get_prefix(client, message):
+    if message.guild is None:
+        return commands.when_mentioned_or("!")(client, message)
+    return commands.when_mentioned_or(guild_config(message.guild.id).get("prefix", "!"))(client, message)
+
+bot = commands.Bot(command_prefix=get_prefix, intents=intents)
 tree = bot.tree
 state: dict[str, Any] = {}
 
@@ -134,6 +139,264 @@ async def wait_for_dm(user: discord.User, prompt: str, timeout: int = 300) -> di
     except asyncio.TimeoutError:
         await dm.send("This request timed out. You can run the command again later.")
         return None
+
+
+# Prefix moderation commands
+def prefix_staff_check(ctx):
+    if not ctx.guild or not isinstance(ctx.author, discord.Member):
+        return False
+    if ctx.author.guild_permissions.administrator or ctx.author.guild_permissions.manage_guild or ctx.author.guild_permissions.manage_messages:
+        return True
+    role_id = guild_config(ctx.guild.id).get("staffRoleId")
+    return bool(role_id and any(r.id == int(role_id) for r in ctx.author.roles))
+
+def parse_duration(value):
+    m = re.fullmatch(r"(\d{1,4})(s|m|h|d|w)", value.lower())
+    if not m:
+        return None
+    seconds = int(m.group(1)) * {"s":1,"m":60,"h":3600,"d":86400,"w":604800}[m.group(2)]
+    return timedelta(seconds=seconds) if 1 <= seconds <= 2419200 else None
+
+async def prefix_case(ctx, action, target, reason):
+    case_id = state["nextCaseId"]
+    state["nextCaseId"] += 1
+    state.setdefault("moderationCases", []).append({
+        "caseId":case_id,"guildId":str(ctx.guild.id),"userId":str(target.id),
+        "action":action,"reason":reason[:500],"moderatorId":str(ctx.author.id),"createdAt":now()
+    })
+    save_state()
+    embed = discord.Embed(title=f"Moderation: {action.title()}",
+        description=f"User: {target.mention}\nModerator: {ctx.author.mention}\nReason: {reason[:1000]}",
+        timestamp=datetime.now(timezone.utc))
+    embed.set_footer(text=f"Case #{case_id}")
+    await send_log(ctx.guild, embed)
+    return case_id
+
+async def prefix_dm(user, message):
+    try:
+        await user.send(message)
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+@bot.command(name="modhelp", aliases=["moderation"])
+async def modhelp(ctx):
+    p = guild_config(ctx.guild.id).get("prefix", "!") if ctx.guild else "!"
+    await ctx.send(
+        f"**Moderation commands ({p})**\n"
+        f"{p}ban @user [reason] | {p}unban user_id [reason] | {p}kick @user [reason]\n"
+        f"{p}timeout @user 10m [reason] | {p}untimeout @user [reason]\n"
+        f"{p}warn @user [reason] | {p}warnings @user | {p}clearwarnings @user\n"
+        f"{p}purge amount | {p}slowmode seconds | {p}lock [#channel] | {p}unlock [#channel]\n"
+        f"{p}bl @user [reason] | {p}unbl @user | {p}blcheck @user\n"
+        f"{p}prefix | {p}setprefix new_prefix"
+    )
+
+@bot.command(name="prefix")
+async def show_prefix(ctx):
+    await ctx.send(f"Current prefix: {guild_config(ctx.guild.id).get('prefix', '!') if ctx.guild else '!'}")
+
+@bot.command(name="setprefix")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def set_prefix(ctx, prefix: str):
+    if not 1 <= len(prefix) <= 5 or any(c.isspace() for c in prefix):
+        return await ctx.send("Prefix must be 1–5 non-space characters.")
+    guild_config(ctx.guild.id)["prefix"] = prefix
+    save_state()
+    await ctx.send(f"Prefix changed to {prefix}")
+
+@bot.command(name="ban")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"):
+    await prefix_dm(member, f"You were banned from {ctx.guild.name}. Reason: {reason}")
+    await ctx.guild.ban(member, reason=f"{ctx.author}: {reason}", delete_message_seconds=0)
+    case = await prefix_case(ctx, "ban", member, reason)
+    await ctx.send(f"Banned {member.mention}. Case #{case}.")
+
+@bot.command(name="unban")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
+    try:
+        user = await bot.fetch_user(user_id)
+        await ctx.guild.unban(user, reason=f"{ctx.author}: {reason}")
+    except discord.NotFound:
+        return await ctx.send("That user is not banned or the ID is invalid.")
+    case = await prefix_case(ctx, "unban", user, reason)
+    await ctx.send(f"Unbanned {user}. Case #{case}.")
+
+@bot.command(name="kick")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided"):
+    await prefix_dm(member, f"You were kicked from {ctx.guild.name}. Reason: {reason}")
+    await ctx.guild.kick(member, reason=f"{ctx.author}: {reason}")
+    case = await prefix_case(ctx, "kick", member, reason)
+    await ctx.send(f"Kicked {member.mention}. Case #{case}.")
+
+@bot.command(name="timeout", aliases=["mute"])
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="No reason provided"):
+    delta = parse_duration(duration)
+    if delta is None:
+        return await ctx.send("Use 10m, 2h, 1d, etc. Maximum is 28 days.")
+    await member.timeout(delta, reason=f"{ctx.author}: {reason}")
+    await prefix_dm(member, f"You were timed out in {ctx.guild.name} for {duration}. Reason: {reason}")
+    case = await prefix_case(ctx, "timeout", member, f"{duration} — {reason}")
+    await ctx.send(f"Timed out {member.mention} for {duration}. Case #{case}.")
+
+@bot.command(name="untimeout", aliases=["unmute"])
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason provided"):
+    await member.timeout(None, reason=f"{ctx.author}: {reason}")
+    case = await prefix_case(ctx, "untimeout", member, reason)
+    await ctx.send(f"Removed timeout from {member.mention}. Case #{case}.")
+
+@bot.command(name="warn")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided"):
+    key = f"{ctx.guild.id}:{member.id}"
+    rows = state.setdefault("warnings", {}).setdefault(key, [])
+    rows.append({"reason":reason[:500],"moderatorId":str(ctx.author.id),"createdAt":now()})
+    save_state()
+    case = await prefix_case(ctx, "warn", member, reason)
+    await prefix_dm(member, f"You received a warning in {ctx.guild.name}. Reason: {reason}")
+    await ctx.send(f"Warned {member.mention}; total warnings: {len(rows)}. Case #{case}.")
+
+@bot.command(name="warnings", aliases=["infractions"])
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_warnings(ctx, member: discord.Member):
+    rows = state.setdefault("warnings", {}).get(f"{ctx.guild.id}:{member.id}", [])
+    if not rows:
+        return await ctx.send(f"{member.mention} has no warnings.")
+    lines = [f"{i}. {r['reason']} — <@{r['moderatorId']}>" for i,r in enumerate(rows[-15:],1)]
+    await ctx.send(embed=discord.Embed(title=f"Warnings for {member}",description="\n".join(lines)[:4000]))
+
+@bot.command(name="clearwarnings")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_clearwarnings(ctx, member: discord.Member):
+    key = f"{ctx.guild.id}:{member.id}"
+    count = len(state.setdefault("warnings", {}).get(key, []))
+    state["warnings"].pop(key, None)
+    save_state()
+    await prefix_case(ctx, "clearwarnings", member, f"Cleared {count} warning(s)")
+    await ctx.send(f"Cleared {count} warning(s) for {member.mention}.")
+
+@bot.command(name="purge", aliases=["clear"])
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_purge(ctx, amount: int):
+    if not 1 <= amount <= 100:
+        return await ctx.send("Choose an amount from 1 to 100.")
+    if isinstance(ctx.channel, discord.TextChannel):
+        deleted = await ctx.channel.purge(limit=amount+1)
+        msg = await ctx.send(f"Deleted {max(0,len(deleted)-1)} message(s).")
+        await msg.delete(delay=5)
+
+@bot.command(name="slowmode")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_slowmode(ctx, seconds: int):
+    if not isinstance(ctx.channel, discord.TextChannel):
+        return
+    if not 0 <= seconds <= 21600:
+        return await ctx.send("Slowmode must be between 0 and 21600 seconds.")
+    await ctx.channel.edit(slowmode_delay=seconds, reason=f"Set by {ctx.author}")
+    await ctx.send(f"Slowmode set to {seconds} second(s).")
+
+@bot.command(name="lock")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_lock(ctx, channel: discord.TextChannel = None):
+    channel = channel or ctx.channel
+    if not isinstance(channel, discord.TextChannel):
+        return await ctx.send("Choose a text channel.")
+    ow = channel.overwrites_for(ctx.guild.default_role)
+    ow.send_messages = False
+    await channel.set_permissions(ctx.guild.default_role, overwrite=ow, reason=f"Locked by {ctx.author}")
+    await ctx.send(f"Locked {channel.mention}.")
+
+@bot.command(name="unlock")
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_unlock(ctx, channel: discord.TextChannel = None):
+    channel = channel or ctx.channel
+    if not isinstance(channel, discord.TextChannel):
+        return await ctx.send("Choose a text channel.")
+    ow = channel.overwrites_for(ctx.guild.default_role)
+    ow.send_messages = None
+    await channel.set_permissions(ctx.guild.default_role, overwrite=ow, reason=f"Unlocked by {ctx.author}")
+    await ctx.send(f"Unlocked {channel.mention}.")
+
+@bot.command(name="bl", aliases=["blacklist"])
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided"):
+    key = f"{ctx.guild.id}:{member.id}"
+    if key in state["blacklists"]:
+        return await ctx.send(f"{member.mention} is already blacklisted.")
+    case = state["nextCaseId"]
+    state["nextCaseId"] += 1
+    record = {"guildId":str(ctx.guild.id),"userId":str(member.id),"reason":reason,"moderatorId":str(ctx.author.id),"caseId":case,"status":"blacklisted","createdAt":now()}
+    state["blacklists"][key] = record
+    state["blacklistHistory"].append(record.copy())
+    role_id = guild_config(ctx.guild.id).get("blacklistRoleId")
+    role = ctx.guild.get_role(int(role_id)) if role_id else None
+    if role:
+        await member.add_roles(role, reason=f"Blacklist case #{case}")
+    save_state()
+    await prefix_dm(member, f"You were blacklisted in {ctx.guild.name}. Reason: {reason}")
+    await prefix_case(ctx, "blacklist", member, reason)
+    await ctx.send(f"Blacklisted {member.mention}. Case #{case}.")
+
+@bot.command(name="unbl", aliases=["unblacklist"])
+@commands.guild_only()
+@commands.check(prefix_staff_check)
+async def prefix_unbl(ctx, member: discord.Member):
+    key = f"{ctx.guild.id}:{member.id}"
+    record = state["blacklists"].pop(key, None)
+    if not record:
+        return await ctx.send("That user is not blacklisted.")
+    record.update({"status":"unblacklisted","unblacklistedAt":now(),"unblacklistedBy":str(ctx.author.id)})
+    state["blacklistHistory"].append(record.copy())
+    role_id = guild_config(ctx.guild.id).get("blacklistRoleId")
+    role = ctx.guild.get_role(int(role_id)) if role_id else None
+    if role:
+        await member.remove_roles(role, reason="User unblacklisted")
+    save_state()
+    await prefix_case(ctx, "unblacklist", member, f"Original reason: {record['reason']}")
+    await ctx.send(f"Unblacklisted {member.mention}.")
+
+@bot.command(name="blcheck")
+@commands.guild_only()
+async def prefix_blcheck(ctx, member: discord.User):
+    record = state["blacklists"].get(f"{ctx.guild.id}:{member.id}")
+    if not record:
+        return await ctx.send(f"{member.mention} is not blacklisted.")
+    await ctx.send(f"{member.mention} is blacklisted. Reason: {record['reason']} | Case #{record['caseId']}")
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.MissingPermissions):
+        return await ctx.send("You need Manage Server to change the prefix.")
+    if isinstance(error, commands.CheckFailure):
+        return await ctx.send("You do not have permission to use that moderation command.")
+    if isinstance(error, commands.MissingRequiredArgument):
+        p = guild_config(ctx.guild.id).get("prefix","!") if ctx.guild else "!"
+        return await ctx.send(f"Missing argument: {error.param.name}. Use {p}modhelp.")
+    if isinstance(error, commands.BadArgument):
+        return await ctx.send("I could not understand that argument. Mention a member or provide a valid user ID.")
+    if isinstance(error, discord.Forbidden):
+        return await ctx.send("I do not have permission, or my role is below the target member's role.")
+    await ctx.send(f"Command failed: {str(error)[:250]}")
 
 @tree.command(name="blacklist", description="Blacklist a user and create a moderation case.")
 @app_commands.describe(user="User to blacklist", reason="Reason for the blacklist")
