@@ -1041,6 +1041,51 @@ async def config_stage_role(interaction: discord.Interaction, stage: app_command
     save_state()
     await reply_private(interaction, f"Stage {stage} now assigns {role.mention}.")
 
+@config_group.command(name="stage-power-role-remove", description="Remove an incorrect power-to-role mapping.")
+@app_commands.describe(power="Power label to remove, such as weak or strong")
+async def config_stage_power_role_remove(interaction: discord.Interaction, power: app_commands.Range[str, 1, 30]):
+    if not await config_guard(interaction): return
+    cfg = guild_config(interaction.guild.id)
+    mapping = cfg.setdefault("stagePowerRoles", {})
+    removed = mapping.pop(power.strip().lower(), None)
+    if not removed:
+        return await reply_private(interaction, f"No power mapping exists for `{power.strip().lower()}`.")
+    save_state()
+    await reply_private(interaction, f"Removed the power mapping for `{power.strip().lower()}`. You can now set it again with `/config stage-power-role`.")
+
+@config_group.command(name="stage-rank-role-remove", description="Remove an incorrect rank-to-role mapping.")
+@app_commands.describe(rank="Rank label to remove")
+async def config_stage_rank_role_remove(interaction: discord.Interaction, rank: app_commands.Range[str, 1, 30]):
+    if not await config_guard(interaction): return
+    cfg = guild_config(interaction.guild.id)
+    mapping = cfg.setdefault("stageRankRoles", {})
+    removed = mapping.pop(rank.strip().lower(), None)
+    if not removed:
+        return await reply_private(interaction, f"No rank mapping exists for `{rank.strip().lower()}`.")
+    save_state()
+    await reply_private(interaction, f"Removed the rank mapping for `{rank.strip().lower()}`. You can now set it again with `/config stage-rank-role`.")
+
+@config_group.command(name="stage-role-remove", description="Remove a numbered stage-to-role mapping.")
+@app_commands.describe(stage="Stage number whose mapping should be removed")
+async def config_stage_role_remove(interaction: discord.Interaction, stage: app_commands.Range[int, 1, 100]):
+    if not await config_guard(interaction): return
+    cfg = guild_config(interaction.guild.id)
+    removed = cfg.setdefault("stageRoles", {}).pop(str(stage), None)
+    if not removed:
+        return await reply_private(interaction, f"Stage {stage} has no configured role.")
+    save_state()
+    await reply_private(interaction, f"Removed the role mapping for Stage {stage}. You can set it again with `/config stage-role`.")
+
+@config_group.command(name="stage-reset", description="Clear all numbered stage, power, and rank role mappings.")
+async def config_stage_reset(interaction: discord.Interaction):
+    if not await config_guard(interaction): return
+    cfg = guild_config(interaction.guild.id)
+    cfg["stageRoles"] = {}
+    cfg["stagePowerRoles"] = {}
+    cfg["stageRankRoles"] = {}
+    save_state()
+    await reply_private(interaction, "All stage, power, and rank role mappings have been reset. The tryout-host permission role was kept. Reconfigure them with `/config stage-role`, `/config stage-power-role`, and `/config stage-rank-role`.")
+
 @config_group.command(name="clan-register-logs", description="Set the clan registration review channel.")
 async def config_clan_logs(interaction: discord.Interaction, channel: discord.TextChannel):
     if not await config_guard(interaction): return
