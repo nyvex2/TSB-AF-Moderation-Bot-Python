@@ -461,6 +461,7 @@ async def on_command_error(ctx, error):
 async def blacklist(interaction: discord.Interaction, user: discord.User, reason: app_commands.Range[str, 1, 500]):
     if not interaction.guild or not is_staff(interaction):
         return await reply_private(interaction, "You do not have permission to use this command.")
+    await interaction.response.defer(thinking=True)
     key = f"{interaction.guild.id}:{user.id}"
     if key in state["blacklists"]:
         return await reply_private(interaction, f"Already blacklisted as case #{state['blacklists'][key]['caseId']}.")
@@ -489,13 +490,14 @@ async def blacklist(interaction: discord.Interaction, user: discord.User, reason
     save_state()
     embed = discord.Embed(title="User Blacklisted", description=f"**Blacklisted by**\n{interaction.user.mention}\n\n**Member**\n{member.mention}\n\n**Reason**\n{reason}\n\n**Jail status**\nRole applied • {('Nickname updated' if not state['blacklists'][key].get('nicknameNote') else 'Nickname could not be changed')}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Case #{case_id} • TSB-AF Moderation")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
 
 @tree.command(name="unblacklist", description="Remove a user from the active blacklist and keep history.")
 async def unblacklist(interaction: discord.Interaction, user: discord.User):
     if not interaction.guild or not is_staff(interaction):
         return await reply_private(interaction, "You do not have permission to use this command.")
+    await interaction.response.defer(thinking=True)
     key = f"{interaction.guild.id}:{user.id}"
     record = state["blacklists"].pop(key, None)
     if not record:
@@ -513,7 +515,7 @@ async def unblacklist(interaction: discord.Interaction, user: discord.User):
     save_state()
     embed = discord.Embed(title="User Unblacklisted", description=f"**Unblacklisted by**\n{interaction.user.mention}\n\n**Member**\n{user.mention}\n\n**Original reason**\n{record['reason']}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Original Case #{record['caseId']} • TSB-AF Moderation")
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
 
 @tree.command(name="blcheck", description="Check whether a user is currently blacklisted.")
@@ -560,6 +562,7 @@ async def stage(interaction: discord.Interaction, user: discord.Member, stage: a
     allowed = is_admin(interaction) or (host_role and isinstance(interaction.user, discord.Member) and any(r.id == int(host_role) for r in interaction.user.roles))
     if not interaction.guild or not allowed:
         return await reply_private(interaction, "Only configured tryout hosts can use /stage.")
+    await interaction.response.defer(thinking=True)
     role_name = f"Stage {stage} • {power.strip()} • {rank.strip()}"[:100]
     role = discord.utils.get(interaction.guild.roles, name=role_name)
     if role is None:
@@ -571,7 +574,7 @@ async def stage(interaction: discord.Interaction, user: discord.Member, stage: a
     save_state()
     embed = discord.Embed(title="Stage Passed", description=f"**Player**\n{user.mention}\n\n**Stage**\n{stage}\n\n**Stage Power**\n{power}\n\n**Stage Rank**\n{rank}\n\n**Tryout Host**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.add_field(name="Role", value=role.mention)
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
 
 config_group = app_commands.Group(name="config", description="Configure the moderation bot.")
@@ -609,6 +612,7 @@ async def config_blacklist_role(interaction: discord.Interaction, role: discord.
 @config_group.command(name="jail-setup", description="Create/update the blacklist jail role and channel permissions.")
 async def config_jail_setup(interaction: discord.Interaction):
     if not await config_guard(interaction): return
+    await interaction.response.defer(ephemeral=True, thinking=True)
     role = await get_jail_role(interaction.guild)
     await apply_jail_permissions(interaction.guild, role)
     save_state()
@@ -618,6 +622,7 @@ async def config_jail_setup(interaction: discord.Interaction):
 @app_commands.describe(channel="Channel jailed members may access")
 async def config_jail_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     if not await config_guard(interaction): return
+    await interaction.response.defer(ephemeral=True, thinking=True)
     cfg = guild_config(interaction.guild.id)
     ids = {str(cid) for cid in cfg.get("jailChannelIds", [])}
     ids.add(str(channel.id))
@@ -631,6 +636,7 @@ async def config_jail_channel(interaction: discord.Interaction, channel: discord
 @app_commands.describe(channel="Channel to remove from jail access")
 async def config_jail_channel_remove(interaction: discord.Interaction, channel: discord.TextChannel):
     if not await config_guard(interaction): return
+    await interaction.response.defer(ephemeral=True, thinking=True)
     cfg = guild_config(interaction.guild.id)
     cfg["jailChannelIds"] = [str(cid) for cid in cfg.get("jailChannelIds", []) if str(cid) != str(channel.id)]
     role = await get_jail_role(interaction.guild)
