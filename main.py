@@ -64,6 +64,23 @@ def is_staff(interaction: discord.Interaction) -> bool:
 def staff_button(interaction: discord.Interaction) -> bool:
     return is_staff(interaction)
 
+def can_blacklist(interaction: discord.Interaction) -> bool:
+    if is_staff(interaction):
+        return True
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        return False
+    role_id = guild_config(interaction.guild.id).get("blacklistPermsRoleId")
+    return bool(role_id and any(role.id == int(role_id) for role in interaction.user.roles))
+
+def prefix_blacklist_check(ctx) -> bool:
+    if not ctx.guild or not isinstance(ctx.author, discord.Member):
+        return False
+    if ctx.author.guild_permissions.administrator or ctx.author.guild_permissions.manage_guild or ctx.author.guild_permissions.manage_messages:
+        return True
+    cfg = guild_config(ctx.guild.id)
+    allowed_ids = {str(cfg.get("staffRoleId")), str(cfg.get("blacklistPermsRoleId"))}
+    return any(str(role.id) in allowed_ids for role in ctx.author.roles)
+
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
@@ -90,6 +107,21 @@ async def send_log(guild: discord.Guild, embed: discord.Embed) -> None:
         channel = guild.get_channel(int(channel_id)) or await bot.fetch_channel(int(channel_id))
         if isinstance(channel, discord.TextChannel):
             await channel.send(embed=embed)
+
+async def send_blacklist_log(guild: discord.Guild, embed: discord.Embed) -> bool:
+    channel_id = guild_config(guild.id).get("blacklistLogChannelId")
+    if not channel_id:
+        return False
+    channel = guild.get_channel(int(channel_id))
+    if channel is None:
+        try:
+            channel = await bot.fetch_channel(int(channel_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return False
+    if not isinstance(channel, discord.TextChannel):
+        return False
+    await channel.send(embed=embed)
+    return True
 
 CYAN = discord.Color.from_rgb(0, 255, 255)
 
@@ -410,7 +442,7 @@ async def prefix_unlock(ctx, channel: discord.TextChannel = None):
 
 @bot.command(name="bl", aliases=["blacklist"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_blacklist_check)
 async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided"):
     key = f"{ctx.guild.id}:{member.id}"
     if key in state["blacklists"]:
@@ -425,9 +457,11 @@ async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided")
         state["blacklists"].pop(key, None)
         return await ctx.send("I cannot apply the jail role. Move my bot role above the member and grant Manage Roles/Manage Channels.")
     save_state()
-    embed = discord.Embed(title="User Blacklisted", description=f"**Member**\n{member.mention}\n\n**Moderator**\n{ctx.author.mention}\n\n**Reason**\n{reason}", color=CYAN, timestamp=datetime.now(timezone.utc))
+    embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {ctx.author.mention}\n**Reason:** {reason}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Case #{case} • TSB-AF Moderation")
     await ctx.send(embed=embed)
+    forwarded = await send_blacklist_log(ctx.guild, embed)
+    await ctx.send(f"Case #{case} forwarded to bl logs." if forwarded else f"Case #{case} created. BL logs channel is not configured.")
 
 @bot.command(name="unbl", aliases=["unblacklist"])
 @commands.guild_only()
@@ -486,7 +520,7 @@ async def on_command_error(ctx, error):
 @tree.command(name="blacklist", description="Blacklist a user and create a moderation case.")
 @app_commands.describe(user="User to blacklist", reason="Reason for the blacklist")
 async def blacklist(interaction: discord.Interaction, user: discord.User, reason: app_commands.Range[str, 1, 500]):
-    if not interaction.guild or not is_staff(interaction):
+    if not interaction.guild or not can_blacklist(interaction):
         return await reply_private(interaction, "You do not have permission to use this command.")
     await interaction.response.defer(thinking=True)
     key = f"{interaction.guild.id}:{user.id}"
@@ -515,10 +549,11 @@ async def blacklist(interaction: discord.Interaction, user: discord.User, reason
         state["blacklistHistory"].pop()
         return await reply_private(interaction, "I cannot configure the jail. Give me Manage Roles and Manage Channels, and move my bot role above the target member.")
     save_state()
-    embed = discord.Embed(title="User Blacklisted", description=f"**Blacklisted by**\n{interaction.user.mention}\n\n**Member**\n{member.mention}\n\n**Reason**\n{reason}\n\n**Jail status**\nRole applied • {('Nickname updated' if not state['blacklists'][key].get('nicknameNote') else 'Nickname could not be changed')}", color=CYAN, timestamp=datetime.now(timezone.utc))
+    embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {interaction.user.mention}\n**Reason:** {reason}\n\n**Jail status:** Role applied • {('Nickname updated' if not state['blacklists'][key].get('nicknameNote') else 'Nickname could not be changed')}", color=CYAN, timestamp=datetime.now(timezone.utc))
     embed.set_footer(text=f"Case #{case_id} • TSB-AF Moderation")
     await interaction.followup.send(embed=embed)
-    await send_log(interaction.guild, embed)
+    forwarded = await send_blacklist_log(interaction.guild, embed)
+    await interaction.followup.send(content=(f"Case #{case_id} forwarded to bl logs." if forwarded else f"Case #{case_id} created. BL logs channel is not configured."))
 
 @tree.command(name="unblacklist", description="Remove a user from the active blacklist and keep history.")
 async def unblacklist(interaction: discord.Interaction, user: discord.User):
@@ -630,6 +665,20 @@ async def config_staff_role(interaction: discord.Interaction, role: discord.Role
     guild_config(interaction.guild.id)["staffRoleId"] = str(role.id); save_state()
     await reply_private(interaction, f"Staff role set to {role.mention}.")
 
+@config_group.command(name="blacklist-perms-role", description="Set the role allowed to use blacklist commands.")
+async def config_blacklist_perms_role(interaction: discord.Interaction, role: discord.Role):
+    if not await config_guard(interaction): return
+    guild_config(interaction.guild.id)["blacklistPermsRoleId"] = str(role.id)
+    save_state()
+    await reply_private(interaction, f"{role.mention} can now use `/blacklist` and the `,bl` command.")
+
+@config_group.command(name="bl-logs", description="Set the channel for blacklist case logs.")
+async def config_bl_logs(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not await config_guard(interaction): return
+    guild_config(interaction.guild.id)["blacklistLogChannelId"] = str(channel.id)
+    save_state()
+    await reply_private(interaction, f"Blacklist logs will be forwarded to {channel.mention}.")
+
 @config_group.command(name="blacklist-role", description="Set the blacklist role.")
 async def config_blacklist_role(interaction: discord.Interaction, role: discord.Role):
     if not await config_guard(interaction): return
@@ -708,8 +757,8 @@ tree.add_command(config_group)
 async def config_show(interaction: discord.Interaction):
     if not await config_guard(interaction): return
     c = guild_config(interaction.guild.id)
-    lines = [f"**{label}:** {f'<#{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Logs", "logChannelId"), ("Applications", "applicationChannelId"), ("Clan registration logs", "clanRegistrationChannelId"), ("Clan news", "clanNewsChannelId")]]
-    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId")]]
+    lines = [f"**{label}:** {f'<#{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Logs", "logChannelId"), ("Blacklist logs", "blacklistLogChannelId"), ("Applications", "applicationChannelId"), ("Clan registration logs", "clanRegistrationChannelId"), ("Clan news", "clanNewsChannelId")]]
+    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId")]]
     jail_channels = c.get("jailChannelIds", [])
     lines.append("**Jail allowed channels:** " + (", ".join(f"<#{cid}>" for cid in jail_channels) if jail_channels else "None configured"))
     lines.append("**Questions:** " + (" | ".join(c.get("applicationQuestions", [])) or "Not configured"))
