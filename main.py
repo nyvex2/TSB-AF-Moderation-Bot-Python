@@ -95,7 +95,7 @@ state: dict[str, Any] = {}
 
 async def reply_private(interaction: discord.Interaction, content: str) -> None:
     embed = discord.Embed(description=content, color=CYAN)
-    embed.set_footer(text="TSB-AF Moderation")
+    embed.set_footer(text="TSBAF Moderation")
     if interaction.response.is_done():
         await interaction.followup.send(embed=embed, ephemeral=True)
     else:
@@ -288,7 +288,7 @@ async def prefix_dm(user, message):
 async def modhelp(ctx):
     p = guild_config(ctx.guild.id).get("prefix", ",") if ctx.guild else ","
     embed = discord.Embed(
-        title="TSB-AF | Moderation Command Center",
+        title="TSBAF | Moderation Command Center",
         description=("A quick reference for authorized moderation and server-management commands.\nSlash commands are also available for the core moderation actions.\n"
                      f"**Server prefix:** `{p}`  •  **Need help?** Contact the server's moderation team."),
         color=CYAN,
@@ -324,7 +324,7 @@ async def modhelp(ctx):
         f"`{p}case case_id` — View a moderation case\n"
         f"`{p}history @member` — View a member's case history\n"
         f"`{p}note @member text` / `{p}notes @member` — Manage staff-only notes"), inline=False)
-    embed.set_footer(text="TSB-AF Moderation • Actions are recorded in the moderation log")
+    embed.set_footer(text="TSBAF Moderation • Actions are recorded in the moderation log")
     await ctx.send(embed=embed)
 
 async def send_action_confirmation(ctx, action, target, reason, case_id, details=None):
@@ -340,7 +340,7 @@ async def send_action_confirmation(ctx, action, target, reason, case_id, details
     if details:
         embed.add_field(name="Duration", value=details, inline=True)
     embed.add_field(name="Reason", value=reason[:1024], inline=False)
-    embed.set_footer(text="TSB-AF Moderation • Case recorded")
+    embed.set_footer(text="TSBAF Moderation • Case recorded")
     await ctx.send(embed=embed)
 
 @bot.command(name="prefix")
@@ -670,7 +670,7 @@ async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided")
         return await ctx.send("I cannot apply the jail role. Move my bot role above the member and grant Manage Roles/Manage Channels.")
     save_state()
     embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {ctx.author.mention}\n**Reason:** {reason}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Case #{case} • TSB-AF Moderation")
+    embed.set_footer(text=f"Case #{case} • TSBAF Moderation")
     await ctx.send(embed=embed)
     forwarded = await send_blacklist_log(ctx.guild, embed)
     await ctx.send(f"Case #{case} forwarded to bl logs." if forwarded else f"Case #{case} created. BL logs channel is not configured.")
@@ -689,7 +689,7 @@ async def prefix_unbl(ctx, member: discord.Member):
     save_state()
     case = await prefix_case(ctx, "unblacklist", member, f"Original reason: {record['reason']}")
     embed = discord.Embed(title="User Unblacklisted", description=f"**Member**\n{member.mention}\n\n**Moderator**\n{ctx.author.mention}\n\n**Original reason**\n{record['reason']}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Case #{case} • TSB-AF Moderation")
+    embed.set_footer(text=f"Case #{case} • TSBAF Moderation")
     await ctx.send(embed=embed)
 
 @bot.command(name="blcheck")
@@ -762,7 +762,7 @@ async def blacklist(interaction: discord.Interaction, user: discord.User, reason
         return await reply_private(interaction, "I cannot configure the jail. Give me Manage Roles and Manage Channels, and move my bot role above the target member.")
     save_state()
     embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {interaction.user.mention}\n**Reason:** {reason}\n\n**Jail status:** Role applied • {('Nickname updated' if not state['blacklists'][key].get('nicknameNote') else 'Nickname could not be changed')}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Case #{case_id} • TSB-AF Moderation")
+    embed.set_footer(text=f"Case #{case_id} • TSBAF Moderation")
     await interaction.followup.send(embed=embed)
     forwarded = await send_blacklist_log(interaction.guild, embed)
     await interaction.followup.send(content=(f"Case #{case_id} forwarded to bl logs." if forwarded else f"Case #{case_id} created. BL logs channel is not configured."))
@@ -788,7 +788,7 @@ async def unblacklist(interaction: discord.Interaction, user: discord.User):
         await unblacklist_member(interaction.guild, member, record)
     save_state()
     embed = discord.Embed(title="User Unblacklisted", description=f"**Unblacklisted by**\n{interaction.user.mention}\n\n**Member**\n{user.mention}\n\n**Original reason**\n{record['reason']}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Original Case #{record['caseId']} • TSB-AF Moderation")
+    embed.set_footer(text=f"Original Case #{record['caseId']} • TSBAF Moderation")
     await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
 
@@ -828,26 +828,51 @@ async def embed_say(interaction: discord.Interaction, title: app_commands.Range[
     await (channel or interaction.channel).send(embed=embed)
     await reply_private(interaction, "Embed sent.")
 
-@tree.command(name="stage", description="Give a tryout stage role to a user.")
-@app_commands.describe(user="Player who passed", stage="Stage number", power="Stage power", rank="Stage rank")
-async def stage(interaction: discord.Interaction, user: discord.Member, stage: app_commands.Range[int, 1, 100], power: app_commands.Range[str, 1, 50], rank: app_commands.Range[str, 1, 50]):
+async def stage_power_autocomplete(interaction: discord.Interaction, current: str):
     cfg = guild_config(interaction.guild.id) if interaction.guild else {}
-    host_role = cfg.get("tryoutHostRoleId")
-    allowed = is_admin(interaction) or (host_role and isinstance(interaction.user, discord.Member) and any(r.id == int(host_role) for r in interaction.user.roles))
-    if not interaction.guild or not allowed:
-        return await reply_private(interaction, "Only configured tryout hosts can use /stage.")
+    options = cfg.get("stagePowerRoles", {})
+    return [app_commands.Choice(name=name[:100], value=name) for name in options if current.lower() in name.lower()][:25]
+
+async def stage_rank_autocomplete(interaction: discord.Interaction, current: str):
+    cfg = guild_config(interaction.guild.id) if interaction.guild else {}
+    options = cfg.get("stageRankRoles", {})
+    return [app_commands.Choice(name=name[:100], value=name) for name in options if current.lower() in name.lower()][:25]
+
+@tree.command(name="stage", description="Award a tryout stage and its configured power/rank roles.")
+@app_commands.describe(user="Player who passed", stage="Stage number", power="Configured power role, such as Weak or Strong", rank="Configured rank role")
+@app_commands.autocomplete(power=stage_power_autocomplete, rank=stage_rank_autocomplete)
+async def stage(interaction: discord.Interaction, user: discord.Member, stage: app_commands.Range[int, 1, 100], power: str, rank: str):
+    if not interaction.guild:
+        return await reply_private(interaction, "This command can only be used inside a server.")
+    cfg = guild_config(interaction.guild.id)
+    host_role_id = cfg.get("tryoutHostRoleId")
+    is_host = isinstance(interaction.user, discord.Member) and host_role_id and any(r.id == int(host_role_id) for r in interaction.user.roles)
+    if not (is_admin(interaction) or is_host):
+        return await reply_private(interaction, "Only members with the configured tryout-host role can use /stage.")
+    power_key, rank_key = power.strip().lower(), rank.strip().lower()
+    power_id = cfg.get("stagePowerRoles", {}).get(power_key)
+    rank_id = cfg.get("stageRankRoles", {}).get(rank_key)
+    if not power_id or not rank_id:
+        return await reply_private(interaction, "That power or rank is not configured. Ask an administrator to configure it under `/config`.")
+    power_role = interaction.guild.get_role(int(power_id))
+    rank_role = interaction.guild.get_role(int(rank_id))
+    if not power_role or not rank_role:
+        return await reply_private(interaction, "A configured power/rank role no longer exists. An administrator must update the stage role configuration.")
+    bot_member = interaction.guild.me
+    if not bot_member or power_role >= bot_member.top_role or rank_role >= bot_member.top_role:
+        return await reply_private(interaction, "I cannot assign one of those roles. Move my bot role above the configured power and rank roles.")
     await interaction.response.defer(thinking=True)
-    role_name = f"Stage {stage} • {power.strip()} • {rank.strip()}"[:100]
-    role = discord.utils.get(interaction.guild.roles, name=role_name)
-    if role is None:
-        role = await interaction.guild.create_role(name=role_name, reason=f"Stage role created by {interaction.user}")
-    if role >= interaction.guild.me.top_role:
-        return await reply_private(interaction, "I cannot assign that role because it is above my highest role.")
-    await user.add_roles(role)
-    state["stages"].append({"guildId": str(interaction.guild.id), "userId": str(user.id), "stage": stage, "power": power, "rank": rank, "roleId": str(role.id), "hostId": str(interaction.user.id), "createdAt": now()})
+    # Keep one active role from each configured category; preserve unrelated member roles.
+    managed_ids = {int(rid) for mapping in (cfg.get("stagePowerRoles", {}), cfg.get("stageRankRoles", {})) for rid in mapping.values()}
+    remove_roles = [r for r in user.roles if r.id in managed_ids and r.id not in {power_role.id, rank_role.id}]
+    if remove_roles:
+        await user.remove_roles(*remove_roles, reason=f"Stage roles updated by {interaction.user}")
+    await user.add_roles(power_role, rank_role, reason=f"Stage {stage} awarded by {interaction.user}")
+    record = {"guildId":str(interaction.guild.id),"userId":str(user.id),"stage":stage,"power":power_key,"rank":rank_key,"powerRoleId":str(power_role.id),"rankRoleId":str(rank_role.id),"hostId":str(interaction.user.id),"createdAt":now()}
+    state.setdefault("stages", []).append(record)
     save_state()
-    embed = discord.Embed(title="Stage Passed", description=f"**Player**\n{user.mention}\n\n**Stage**\n{stage}\n\n**Stage Power**\n{power}\n\n**Stage Rank**\n{rank}\n\n**Tryout Host**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.add_field(name="Role", value=role.mention)
+    embed = discord.Embed(title="Stage Passed", description=f"**Player**\n{user.mention}\n\n**Stage**\n{stage}\n\n**Power**\n{power_role.mention}\n\n**Rank**\n{rank_role.mention}\n\n**Tryout Host**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
+    embed.set_footer(text="TSBAF • Tryout System")
     await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
 
@@ -944,6 +969,28 @@ async def config_tryout_role(interaction: discord.Interaction, role: discord.Rol
     guild_config(interaction.guild.id)["tryoutHostRoleId"] = str(role.id); save_state()
     await reply_private(interaction, f"Tryout host role set to {role.mention}.")
 
+@config_group.command(name="stage-power-role", description="Map a power label (Weak/Strong/Stable) to an existing role.")
+@app_commands.describe(power="Power label used by /stage", role="Existing server role to assign")
+async def config_stage_power_role(interaction: discord.Interaction, power: app_commands.Range[str, 1, 30], role: discord.Role):
+    if not await config_guard(interaction): return
+    if role.is_default() or role.managed:
+        return await reply_private(interaction, "Choose a normal, assignable server role.")
+    cfg = guild_config(interaction.guild.id)
+    cfg.setdefault("stagePowerRoles", {})[power.strip().lower()] = str(role.id)
+    save_state()
+    await reply_private(interaction, f"Stage power `{power.strip().lower()}` now assigns {role.mention}. It will appear in /stage autocomplete.")
+
+@config_group.command(name="stage-rank-role", description="Map a rank label to an existing server role.")
+@app_commands.describe(rank="Rank label used by /stage", role="Existing server role to assign")
+async def config_stage_rank_role(interaction: discord.Interaction, rank: app_commands.Range[str, 1, 30], role: discord.Role):
+    if not await config_guard(interaction): return
+    if role.is_default() or role.managed:
+        return await reply_private(interaction, "Choose a normal, assignable server role.")
+    cfg = guild_config(interaction.guild.id)
+    cfg.setdefault("stageRankRoles", {})[rank.strip().lower()] = str(role.id)
+    save_state()
+    await reply_private(interaction, f"Stage rank `{rank.strip().lower()}` now assigns {role.mention}. It will appear in /stage autocomplete.")
+
 @config_group.command(name="clan-register-logs", description="Set the clan registration review channel.")
 async def config_clan_logs(interaction: discord.Interaction, channel: discord.TextChannel):
     if not await config_guard(interaction): return
@@ -973,6 +1020,8 @@ async def config_show(interaction: discord.Interaction):
     lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId")]]
     jail_channels = c.get("jailChannelIds", [])
     lines.append("**Jail allowed channels:** " + (", ".join(f"<#{cid}>" for cid in jail_channels) if jail_channels else "None configured"))
+    lines.append("**Stage power roles:** " + (", ".join(f"{name}: <@&{rid}>" for name, rid in c.get("stagePowerRoles", {}).items()) or "Not configured"))
+    lines.append("**Stage rank roles:** " + (", ".join(f"{name}: <@&{rid}>" for name, rid in c.get("stageRankRoles", {}).items()) or "Not configured"))
     lines.append("**Questions:** " + (" | ".join(c.get("applicationQuestions", [])) or "Not configured"))
     await interaction.response.send_message(embed=discord.Embed(title="Bot Configuration", description="\n".join(lines), color=CYAN), ephemeral=True)
 
@@ -1096,7 +1145,7 @@ async def process_temporary_bans():
             except (discord.Forbidden, discord.HTTPException):
                 continue
             embed = discord.Embed(title="Temporary Ban Expired", description=f"**Member ID:** `{entry['userId']}`\n**Original case:** `#{entry.get('caseId','?')}`\nThe scheduled unban was processed.", color=CYAN, timestamp=current)
-            embed.set_footer(text="TSB-AF Moderation • Automated action")
+            embed.set_footer(text="TSBAF Moderation • Automated action")
             await send_log(guild, embed)
             entries.remove(entry)
             changed = True
