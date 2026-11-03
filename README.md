@@ -3,7 +3,7 @@
 Python rewrite of the TSB-AF Discord moderation, applications, clan registration and tryout-stage bot. Built with `discord.py`.
 
 ## Features
-- `/blacklist`, `/unblacklist`, `/blcheck` with case history and optional blacklist role
+- `/blacklist`, `/unblacklist`, `/blcheck` with cyan embeds, case history, automatic jail role, nickname tagging and channel allowlist
 - `/say` and `/embed-say`
 - `/stage` restricted to configured tryout hosts; creates and assigns a stage role
 - `/apply` DM questionnaire with staff Accept/Reject buttons
@@ -36,8 +36,16 @@ Python rewrite of the TSB-AF Discord moderation, applications, clan registration
 - `/apply`
 - `/clan-register`
 - `/main code`
-- `/config logs|applications|staff-role|blacklist-role|tryout-role|clan-register-logs|clan-news|questions`
+- `/config logs|applications|staff-role|blacklist-role|jail-setup|jail-channel|jail-channel-remove|tryout-role|clan-register-logs|clan-news|questions`
 - `/config-show`
+
+### Jail setup
+1. Run `/config jail-setup` to create or refresh the `Blacklisted` role and restrict it from every server channel.
+2. Run `/config jail-channel channel:#rules` for each channel jailed members may access (for example, rules, appeals, or a jail chat).
+3. Use `/config jail-channel-remove` to revoke access to a channel.
+4. `/config-show` displays the current jail role and allowed channels.
+
+The bot saves each member's previous nickname and restores it when `/unblacklist` is used. The bot needs **Manage Roles**, **Manage Channels**, and **Manage Nicknames**, and its highest role must be above the members it moderates. Make sure the configured allowed channels are safe for jailed members to access.
 
 ## Persistence and security
 All state is stored in MongoDB Atlas, not in GitHub or on the host disk. This keeps records across restarts and host changes as long as the same MongoDB database is used. Never commit your real Discord token or MongoDB URI; use host environment variables. The `.env` file is ignored by Git.
