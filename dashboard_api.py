@@ -89,6 +89,18 @@ class DashboardAPI:
             role=guild.get_role(int(c[k])) if c.get(k) and str(c[k]).isdigit() else None; out[k]=role.name if role else ""
         out["channels"]=[{"id":str(x.id),"name":x.name} for x in guild.text_channels]
         out["roles"]=[{"id":str(x.id),"name":x.name} for x in guild.roles if not x.is_default() and not x.managed]
+        panels=[]
+        for panel in c.get("dashboardApplications", []):
+            item=dict(panel)
+            for key in ("panelChannel","reviewChannel"):
+                value=item.get(key)
+                channel=guild.get_channel(int(value)) if value and str(value).isdigit() else None
+                item[key]=channel.name if channel else ""
+            value=item.get("staffRole")
+            role=guild.get_role(int(value)) if value and str(value).isdigit() else None
+            item["staffRole"]=role.name if role else ""
+            panels.append(item)
+        out["dashboardApplications"]=panels
         return out
     async def get_config(self,request):
         _,g=self.access(request,request.match_info["gid"]); return web.json_response(self.display(g))
@@ -152,7 +164,11 @@ class DashboardAPI:
         ch=self.resolve(g,p.get("panelChannel"),"channel"); channel=g.get_channel(int(ch)) if ch else None
         if not isinstance(channel,discord.TextChannel): raise web.HTTPBadRequest(text="Set a valid panel channel.")
         if not p.get("enabled"): raise web.HTTPBadRequest(text="Enable the panel first.")
-        embed=discord.Embed(title=p["panelTitle"] or p["name"],description=p["panelDescription"] or p["description"],color=discord.Color.gold())
+        try:
+            embed_color=discord.Color(int(str(p.get("color","#d6a64b")).replace("#",""),16))
+        except (TypeError,ValueError):
+            embed_color=discord.Color.gold()
+        embed=discord.Embed(title=p["panelTitle"] or p["name"],description=p["panelDescription"] or p["description"],color=embed_color)
         view=ApplicationPanelView(self.bot,self.state,self.guild_config,self.save_state,self.review_view,g.id,p)
         msg=None
         if p.get("messageId"):
