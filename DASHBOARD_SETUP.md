@@ -10,7 +10,6 @@ https://YOUR-DASHBOARD.vercel.app/auth/callback
 - DISCORD_CLIENT_ID
 - DISCORD_CLIENT_SECRET
 - DASHBOARD_API_URL = the deployed dashboard URL (same as DASHBOARD_URL)
-- DASHBOARD_URL = the exact deployed dashboard origin
 - DASHBOARD_SESSION_SECRET = long random secret, at least 32 characters
 - DASHBOARD_PORT = public port allocated to the bot service
 
@@ -18,7 +17,6 @@ Keep DISCORD_TOKEN, MONGODB_URI and MONGODB_DB. The Wispbyte bot service must ex
 
 ## Vercel environment variables
 - BOT_API_URL = the actual public HTTPS URL of the Wispbyte bot API
-- DASHBOARD_URL = the deployed dashboard origin
 
 Redeploy the Vercel project after adding the variables. Do not expose bot credentials or database secrets as VITE_ variables.
 
