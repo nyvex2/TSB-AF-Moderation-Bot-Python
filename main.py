@@ -1187,6 +1187,18 @@ async def config_clan_leader_role(interaction: discord.Interaction, role: discor
     save_state()
     await reply_private(interaction, f"Clan leader role set to {role.mention}. It will be assigned when a clan registration is accepted.")
 
+@config_group.command(name="clan-mainer-role", description="Set the role automatically given to members when they main a clan.")
+async def config_clan_mainer_role(interaction: discord.Interaction, role: discord.Role):
+    if not await config_guard(interaction): return
+    if role.is_default() or role.managed:
+        return await reply_private(interaction, "Choose a normal, assignable server role.")
+    bot_member = interaction.guild.me
+    if not bot_member or role >= bot_member.top_role:
+        return await reply_private(interaction, "Move the bot's highest role above the mainer role before configuring it.")
+    guild_config(interaction.guild.id)["clanMainerRoleId"] = str(role.id)
+    save_state()
+    await reply_private(interaction, f"Clan mainer role set to {role.mention}. It will be assigned whenever a member successfully uses `/main`.")
+
 @config_group.command(name="questions", description="Set up to five DM application questions separated by |.")
 async def config_questions(interaction: discord.Interaction, questions: app_commands.Range[str, 1, 1000]):
     if not await config_guard(interaction): return
@@ -1203,7 +1215,7 @@ async def config_show(interaction: discord.Interaction):
     if not await config_guard(interaction): return
     c = guild_config(interaction.guild.id)
     lines = [f"**{label}:** {f'<#{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Logs", "logChannelId"), ("Blacklist logs", "blacklistLogChannelId"), ("Applications", "applicationChannelId"), ("Clan registration logs", "clanRegistrationChannelId"), ("Clan main logs", "clanMainLogChannelId")]]
-    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId"), ("Clan leader role", "clanLeaderRoleId")]]
+    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId"), ("Clan leader role", "clanLeaderRoleId"), ("Clan mainer role", "clanMainerRoleId")]]
     jail_channels = c.get("jailChannelIds", [])
     lines.append("**Jail allowed channels:** " + (", ".join(f"<#{cid}>" for cid in jail_channels) if jail_channels else "None configured"))
     lines.append("**Numbered stage roles:** " + (", ".join(f"Stage {number}: <@&{rid}>" for number, rid in sorted(c.get("stageRoles", {}).items(), key=lambda item: int(item[0]))) or "Not configured"))
@@ -1309,6 +1321,22 @@ async def main(interaction: discord.Interaction, code: app_commands.Range[str, 5
     save_state()
 
     cfg = guild_config(interaction.guild.id)
+    role_status = ""
+    mainer_role_id = cfg.get("clanMainerRoleId")
+    if mainer_role_id:
+        mainer_role = interaction.guild.get_role(int(mainer_role_id))
+        bot_member = interaction.guild.me
+        if not mainer_role or mainer_role.is_default() or mainer_role.managed:
+            role_status = "\n\nThe configured clan mainer role is missing or cannot be assigned."
+        elif not bot_member or mainer_role >= bot_member.top_role:
+            role_status = "\n\nThe bot cannot assign the configured mainer role. Move its highest role above it."
+        elif mainer_role not in interaction.user.roles:
+            try:
+                await interaction.user.add_roles(mainer_role, reason=f"Mained clan: {record['clanName']}")
+            except discord.Forbidden:
+                role_status = "\n\nI could not assign the mainer role. Check my Manage Roles permission and role hierarchy."
+            except discord.HTTPException:
+                role_status = "\n\nDiscord returned an error while assigning the mainer role."
     news_id = cfg.get("clanMainLogChannelId") or cfg.get("clanNewsChannelId")
     logged = False
     if news_id:
@@ -1323,7 +1351,7 @@ async def main(interaction: discord.Interaction, code: app_commands.Range[str, 5
             embed.set_footer(text=f"Main record: {main_id}")
             await channel.send(embed=embed)
             logged = True
-    status = f"You have successfully mained **{record['clanName']}**. This code remains active and can be reused without a limit."
+    status = f"You have successfully mained **{record['clanName']}**. This code remains active and can be reused without a limit." + role_status
     if not logged:
         status += "\n\nClan main logs are not configured or the log channel is unavailable. Ask staff to run `/config clan-main-logs`."
     await reply_private(interaction, status)
