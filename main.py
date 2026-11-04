@@ -1,6 +1,7 @@
 import os
 import re
 import asyncio
+import time
 import secrets
 import string
 from datetime import datetime, timezone, timedelta
@@ -103,6 +104,56 @@ async def get_prefix(client, message):
 bot = commands.Bot(command_prefix=get_prefix, intents=intents, help_command=None)
 tree = bot.tree
 state: dict[str, Any] = {}
+BOT_STARTED_AT = time.monotonic()
+
+
+def format_uptime(seconds: float) -> str:
+    total = max(0, int(seconds))
+    days, remainder = divmod(total, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours or days:
+        parts.append(f"{hours}h")
+    if minutes or hours or days:
+        parts.append(f"{minutes}m")
+    parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
+@tree.command(name="ping", description="Show the bot's latency, uptime, and service status.")
+async def ping(interaction: discord.Interaction):
+    started = time.perf_counter()
+    await interaction.response.defer(thinking=True)
+
+    database_ok = False
+    try:
+        await asyncio.to_thread(mongo.admin.command, "ping")
+        database_ok = True
+    except Exception:
+        database_ok = False
+
+    response_ms = (time.perf_counter() - started) * 1000
+    websocket_ms = bot.latency * 1000 if bot.latency is not None else None
+    status_text = "All systems operational" if database_ok else "Degraded — database unavailable"
+    status_color = discord.Color.green() if database_ok else discord.Color.orange()
+
+    embed = discord.Embed(
+        title="TSBAF Bot Status",
+        description=f"**Status:** {status_text}",
+        color=status_color,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="WebSocket Latency", value=f"`{websocket_ms:.0f} ms`" if websocket_ms is not None else "`N/A`", inline=True)
+    embed.add_field(name="Response Time", value=f"`{response_ms:.0f} ms`", inline=True)
+    embed.add_field(name="Uptime", value=f"`{format_uptime(time.monotonic() - BOT_STARTED_AT)}`", inline=True)
+    embed.add_field(name="Servers", value=f"`{len(bot.guilds):,}`", inline=True)
+    embed.add_field(name="Database", value="`Connected`" if database_ok else "`Disconnected`", inline=True)
+    embed.add_field(name="Bot", value=f"`Online` · {bot.user.mention if bot.user else 'Connected'}", inline=True)
+    embed.set_footer(text="TSBAF Moderation • Live status")
+    await interaction.edit_original_response(embed=embed)
 
 async def reply_private(interaction: discord.Interaction, content: str) -> None:
     embed = discord.Embed(description=content, color=CYAN)
