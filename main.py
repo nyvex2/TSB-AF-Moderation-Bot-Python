@@ -358,46 +358,46 @@ async def modhelp(ctx):
     embed = discord.Embed(
         title="TSBAF | Moderation Command Center",
         description=("A quick reference for authorized moderation and server-management commands.\nSlash commands are also available for the core moderation actions.\n"
-                     f"**Server prefix:** `{p}`  •  **Need help?** Contact the server's moderation team."),
+                     f"**Server prefix:** `{p}`  â¢  **Need help?** Contact the server's moderation team."),
         color=CYAN,
         timestamp=datetime.now(timezone.utc)
     )
     embed.add_field(name="Member moderation", value=(
-        f"`{p}ban @member [reason]` — Permanently ban a member\n"
-        f"`{p}unban user_id [reason]` — Revoke a ban\n"
-        f"`{p}kick @member [reason]` — Remove a member\n"
-        f"`{p}timeout @member 10m [reason]` — Apply a timeout\n"
-        f"`{p}untimeout @member [reason]` — Remove a timeout\n"
-        f"`{p}warn @member [reason]` — Issue a warning\n"
-        f"`{p}softban @member [reason]` — Ban, clear recent messages, then unban\n"
-        f"`{p}tempban @member 7d [reason]` — Apply a timed ban\n"
-        f"`{p}nick @member nickname` — Update a member nickname\n"
-        f"`{p}roleadd @member @role` / `{p}roleremove @member @role` — Manage member roles"), inline=False)
+        f"`{p}ban @member [reason]` â Permanently ban a member\n"
+        f"`{p}unban user_id [reason]` â Revoke a ban\n"
+        f"`{p}kick @member [reason]` â Remove a member\n"
+        f"`{p}timeout @member 10m [reason]` â Apply a timeout\n"
+        f"`{p}untimeout @member [reason]` â Remove a timeout\n"
+        f"`{p}warn @member [reason]` â Issue a warning\n"
+        f"`{p}softban @member [reason]` â Ban, clear recent messages, then unban\n"
+        f"`{p}tempban @member 7d [reason]` â Apply a timed ban\n"
+        f"`{p}nick @member nickname` â Update a member nickname\n"
+        f"`{p}roleadd @member @role` / `{p}roleremove @member @role` â Manage member roles"), inline=False)
     embed.add_field(name="Cases & blacklist", value=(
-        f"`{p}warnings @member` — Review warning history\n"
-        f"`{p}clearwarnings @member` — Clear warning history\n"
-        f"`{p}bl @member [reason]` — Add to the server blacklist\n"
-        f"`{p}unbl @member` — Remove from the blacklist\n"
-        f"`{p}blcheck @member` — Check blacklist status"), inline=False)
+        f"`{p}warnings @member` â Review warning history\n"
+        f"`{p}clearwarnings @member` â Clear warning history\n"
+        f"`{p}bl @member [reason]` â Add to the server blacklist\n"
+        f"`{p}unbl @member` â Remove from the blacklist\n"
+        f"`{p}blcheck @member` â Check blacklist status"), inline=False)
     embed.add_field(name="Channel management", value=(
-        f"`{p}purge amount` — Delete recent messages\n"
-        f"`{p}purgeuser @member amount` — Delete a member's recent messages\n"
-        f"`{p}purgebots amount` / `{p}purgelinks amount` / `{p}purgefiles amount` — Filtered cleanup\n"
-        f"`{p}slowmode seconds` — Configure channel slowmode\n"
-        f"`{p}lock [#channel]` / `{p}unlock [#channel]` — Manage channel access\n"
-        f"`{p}voicekick @member` / `{p}voicemute @member` / `{p}voiceunmute @member` — Voice moderation"), inline=False)
+        f"`{p}purge amount` â Delete recent messages\n"
+        f"`{p}purgeuser @member amount` â Delete a member's recent messages\n"
+        f"`{p}purgebots amount` / `{p}purgelinks amount` / `{p}purgefiles amount` â Filtered cleanup\n"
+        f"`{p}slowmode seconds` â Configure channel slowmode\n"
+        f"`{p}lock [#channel]` / `{p}unlock [#channel]` â Manage channel access\n"
+        f"`{p}voicekick @member` / `{p}voicemute @member` / `{p}voiceunmute @member` â Voice moderation"), inline=False)
     embed.add_field(name="Bot settings", value=(
-        f"`{p}prefix` — View the current prefix\n"
-        f"`{p}setprefix new_prefix` — Update the prefix (Manage Server)\n"
-        f"`{p}case case_id` — View a moderation case\n"
-        f"`{p}history @member` — View a member's case history\n"
-        f"`{p}note @member text` / `{p}notes @member` — Manage staff-only notes"), inline=False)
-    embed.set_footer(text="TSBAF Moderation • Actions are recorded in the moderation log")
+        f"`{p}prefix` â View the current prefix\n"
+        f"`{p}setprefix new_prefix` â Update the prefix (Manage Server)\n"
+        f"`{p}case case_id` â View a moderation case\n"
+        f"`{p}history @member` â View a member's case history\n"
+        f"`{p}note @member text` / `{p}notes @member` â Manage staff-only notes"), inline=False)
+    embed.set_footer(text="TSBAF Moderation â¢ Actions are recorded in the moderation log")
     await ctx.send(embed=embed)
 
 async def send_action_confirmation(ctx, action, target, reason, case_id, details=None):
     embed = discord.Embed(
-        title=f"Moderation Action • {action}",
+        title=f"Moderation Action â¢ {action}",
         description="The action was completed successfully and recorded in the moderation system.",
         color=CYAN,
         timestamp=datetime.now(timezone.utc)
@@ -408,7 +408,7 @@ async def send_action_confirmation(ctx, action, target, reason, case_id, details
     if details:
         embed.add_field(name="Duration", value=details, inline=True)
     embed.add_field(name="Reason", value=reason[:1024], inline=False)
-    embed.set_footer(text="TSBAF Moderation • Case recorded")
+    embed.set_footer(text="TSBAF Moderation â¢ Case recorded")
     await ctx.send(embed=embed)
 
 @bot.command(name="prefix")
@@ -420,7 +420,7 @@ async def show_prefix(ctx):
 @commands.has_guild_permissions(administrator=True)
 async def set_prefix(ctx, prefix: str):
     if not 1 <= len(prefix) <= 5 or any(c.isspace() for c in prefix):
-        return await ctx.send("Prefix must be 1–5 non-space characters.")
+        return await ctx.send("Prefix must be 1â5 non-space characters.")
     guild_config(ctx.guild.id)["prefix"] = prefix
     save_state()
     await ctx.send(embed=discord.Embed(title="Server Prefix Updated", description=f"The command prefix is now `{prefix}`.", color=CYAN))
@@ -464,7 +464,7 @@ async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="
         return await ctx.send("Use 10m, 2h, 1d, etc. Maximum is 28 days.")
     await member.timeout(delta, reason=f"{ctx.author}: {reason}")
     await prefix_dm(member, f"You were timed out in {ctx.guild.name} for {duration}. Reason: {reason}")
-    case = await prefix_case(ctx, "timeout", member, f"{duration} — {reason}")
+    case = await prefix_case(ctx, "timeout", member, f"{duration} â {reason}")
     await send_action_confirmation(ctx, "Timeout", member, reason, case, details=duration)
 
 @bot.hybrid_command(name="untimeout", aliases=["unmute", "uto"])
@@ -485,7 +485,7 @@ async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided
     save_state()
     case = await prefix_case(ctx, "warn", member, reason)
     await prefix_dm(member, f"You received a warning in {ctx.guild.name}. Reason: {reason}")
-    await send_action_confirmation(ctx, f"Warning Issued • {len(rows)} Total", member, reason, case)
+    await send_action_confirmation(ctx, f"Warning Issued â¢ {len(rows)} Total", member, reason, case)
 
 @bot.hybrid_command(name="warnings", aliases=["infractions", "ws"])
 @commands.guild_only()
@@ -494,7 +494,7 @@ async def prefix_warnings(ctx, member: discord.Member):
     rows = state.setdefault("warnings", {}).get(f"{ctx.guild.id}:{member.id}", [])
     if not rows:
         return await ctx.send(f"{member.mention} has no warnings.")
-    lines = [f"{i}. {r['reason']} — <@{r['moderatorId']}>" for i,r in enumerate(rows[-15:],1)]
+    lines = [f"{i}. {r['reason']} â <@{r['moderatorId']}>" for i,r in enumerate(rows[-15:],1)]
     await ctx.send(embed=discord.Embed(title=f"Warnings for {member}",description="\n".join(lines)[:4000], color=CYAN))
 
 @bot.hybrid_command(name="clearwarnings", aliases=["cw"])
@@ -577,7 +577,7 @@ async def tempban(ctx, member: discord.Member, duration: str, *, reason="No reas
         return await ctx.send("This member cannot be banned due to role hierarchy or target restrictions.")
     await prefix_dm(member, f"You were temporarily banned from {ctx.guild.name} for {duration}. Reason: {reason}")
     await ctx.guild.ban(member, reason=f"Temporary ban by {ctx.author}: {reason}", delete_message_seconds=0)
-    case = await prefix_case(ctx, "tempban", member, f"Duration: {duration} • {reason}")
+    case = await prefix_case(ctx, "tempban", member, f"Duration: {duration} â¢ {reason}")
     state.setdefault("tempBans", []).append({"guildId":str(ctx.guild.id),"userId":str(member.id),"unbanAt":(datetime.now(timezone.utc)+delta).isoformat(),"caseId":case})
     save_state()
     await send_action_confirmation(ctx, "Temporary Ban", member, reason, case, details=duration)
@@ -588,8 +588,8 @@ async def tempban(ctx, member: discord.Member, duration: str, *, reason="No reas
 async def nick(ctx, member: discord.Member, *, nickname: str = None):
     old = member.display_name
     await member.edit(nick=nickname, reason=f"Nickname updated by {ctx.author}")
-    case = await prefix_case(ctx, "nickname", member, f"{old} → {nickname or 'Reset to username'}")
-    await send_action_confirmation(ctx, "Nickname Updated", member, f"{old} → {nickname or 'Reset to username'}", case)
+    case = await prefix_case(ctx, "nickname", member, f"{old} â {nickname or 'Reset to username'}")
+    await send_action_confirmation(ctx, "Nickname Updated", member, f"{old} â {nickname or 'Reset to username'}", case)
 
 @bot.hybrid_command(name="roleadd", description="Add a role to a member.")
 @commands.guild_only()
@@ -671,8 +671,8 @@ async def case_lookup(ctx, case_id: int):
 async def member_history(ctx, member: discord.User):
     rows = [r for r in state.get("moderationCases", []) if str(r.get("guildId")) == str(ctx.guild.id) and str(r.get("userId")) == str(member.id)][-10:]
     if not rows: return await ctx.send(f"No moderation history found for {member.mention}.")
-    lines = [f"`#{r['caseId']}` **{r['action'].title()}** • {r.get('reason','No reason')[:120]}" for r in reversed(rows)]
-    await ctx.send(embed=discord.Embed(title=f"Moderation History • {member}", description="\n".join(lines), color=CYAN))
+    lines = [f"`#{r['caseId']}` **{r['action'].title()}** â¢ {r.get('reason','No reason')[:120]}" for r in reversed(rows)]
+    await ctx.send(embed=discord.Embed(title=f"Moderation History â¢ {member}", description="\n".join(lines), color=CYAN))
 
 @bot.hybrid_command(name="note", description="Add a private staff note to a member's record.")
 @commands.guild_only()
@@ -690,8 +690,8 @@ async def mod_note(ctx, member: discord.User, *, note: str):
 async def mod_notes(ctx, member: discord.User):
     rows = state.get("modNotes", {}).get(f"{ctx.guild.id}:{member.id}", [])[-10:]
     if not rows: return await ctx.send(f"No staff notes are stored for {member.mention}.")
-    lines = [f"**{i}.** {r['note']}\n<text>By <@{r['moderatorId']}> • {r['createdAt']}</text>" for i,r in enumerate(rows,1)]
-    await ctx.send(embed=discord.Embed(title=f"Staff Notes • {member}", description="\n\n".join(lines)[:4000], color=CYAN))
+    lines = [f"**{i}.** {r['note']}\n<text>By <@{r['moderatorId']}> â¢ {r['createdAt']}</text>" for i,r in enumerate(rows,1)]
+    await ctx.send(embed=discord.Embed(title=f"Staff Notes â¢ {member}", description="\n\n".join(lines)[:4000], color=CYAN))
 
 @bot.hybrid_command(name="voicekick", description="Disconnect a member from their current voice channel.")
 @commands.guild_only()
@@ -739,7 +739,7 @@ async def prefix_bl(ctx, member: discord.Member, *, reason="No reason provided")
     state["blacklistHistory"][-1] = record.copy()
     save_state()
     embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {ctx.author.mention}\n**Reason:** {reason}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Case #{case} • TSBAF Moderation")
+    embed.set_footer(text=f"Case #{case} â¢ TSBAF Moderation")
     await ctx.send(embed=embed)
     forwarded = await send_blacklist_log(ctx.guild, embed)
     await ctx.send(f"Case #{case} forwarded to bl logs." if forwarded else f"Case #{case} created. BL logs channel is not configured.")
@@ -758,7 +758,7 @@ async def prefix_unbl(ctx, member: discord.Member):
     save_state()
     case = await prefix_case(ctx, "unblacklist", member, f"Original reason: {record['reason']}")
     embed = discord.Embed(title="User Unblacklisted", description=f"**Member**\n{member.mention}\n\n**Moderator**\n{ctx.author.mention}\n\n**Original reason**\n{record['reason']}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Case #{case} • TSBAF Moderation")
+    embed.set_footer(text=f"Case #{case} â¢ TSBAF Moderation")
     await ctx.send(embed=embed)
     forwarded = await send_blacklist_log(ctx.guild, embed)
     await ctx.send("Unblacklist case forwarded to bl logs." if forwarded else "Unblacklist completed. BL logs channel is not configured.")
@@ -833,8 +833,8 @@ async def blacklist(interaction: discord.Interaction, user: discord.User, reason
         return await reply_private(interaction, "I cannot configure the jail. Give me Manage Roles and Manage Channels, and move my bot role above the target member.")
     state["blacklistHistory"][-1] = record.copy()
     save_state()
-    embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {interaction.user.mention}\n**Reason:** {reason}\n\n**Jail status:** Role applied • {('Nickname updated' if not state['blacklists'][key].get('nicknameNote') else 'Nickname could not be changed')}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Case #{case_id} • TSBAF Moderation")
+    embed = discord.Embed(title="User Blacklisted", description=f"{member.mention} **was blacklisted.**\n\n**Blacklisted by:** {interaction.user.mention}\n**Reason:** {reason}\n\n**Jail status:** Role applied â¢ {('Nickname updated' if not state['blacklists'][key].get('nicknameNote') else 'Nickname could not be changed')}", color=CYAN, timestamp=datetime.now(timezone.utc))
+    embed.set_footer(text=f"Case #{case_id} â¢ TSBAF Moderation")
     await interaction.followup.send(embed=embed)
     forwarded = await send_blacklist_log(interaction.guild, embed)
     await interaction.followup.send(content=(f"Case #{case_id} forwarded to bl logs." if forwarded else f"Case #{case_id} created. BL logs channel is not configured."))
@@ -860,7 +860,7 @@ async def unblacklist(interaction: discord.Interaction, user: discord.User):
         await unblacklist_member(interaction.guild, member, record)
     save_state()
     embed = discord.Embed(title="User Unblacklisted", description=f"**Unblacklisted by**\n{interaction.user.mention}\n\n**Member**\n{user.mention}\n\n**Original reason**\n{record['reason']}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text=f"Original Case #{record['caseId']} • TSBAF Moderation")
+    embed.set_footer(text=f"Original Case #{record['caseId']} â¢ TSBAF Moderation")
     await interaction.followup.send(embed=embed)
     forwarded = await send_blacklist_log(interaction.guild, embed)
     if not forwarded:
@@ -952,7 +952,7 @@ async def stage(interaction: discord.Interaction, user: discord.Member, stage: a
     state.setdefault("stages", []).append(record)
     save_state()
     embed = discord.Embed(title="Stage Passed", description=f"**Player**\n{user.mention}\n\n**Stage**\n{stage_role.mention} (Stage {stage})\n\n**Power**\n{power_role.mention}\n\n**Rank**\n{rank_role.mention}\n\n**Tryout Host**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text="TSBAF • Tryout System")
+    embed.set_footer(text="TSBAF â¢ Tryout System")
     await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
 
@@ -983,7 +983,7 @@ async def stage_remove(interaction: discord.Interaction, user: discord.Member):
         active_record["removedBy"] = str(interaction.user.id)
     save_state()
     embed = discord.Embed(title="Stage Assignment Removed", description=f"**Player**\n{user.mention}\n\n**Removed roles**\n" + ", ".join(role.mention for role in remove_roles) + f"\n\n**Removed by**\n{interaction.user.mention}", color=CYAN, timestamp=datetime.now(timezone.utc))
-    embed.set_footer(text="TSBAF • Tryout System")
+    embed.set_footer(text="TSBAF â¢ Tryout System")
     await interaction.followup.send(embed=embed)
     await send_log(interaction.guild, embed)
 
@@ -1070,20 +1070,38 @@ async def unblacklist_clan(interaction: discord.Interaction, clan: str):
     save_state()
     await reply_private(interaction, f"Clan **{registration['clanName']}** unblacklisted. Removed the clan-blacklist role from {changed} mainer(s)." + (f" {warning}" if warning else ""))
 
-@tree.command(name="clan-mainers", description="Show the active mainers of your clan.")
-async def clan_mainers(interaction: discord.Interaction):
+async def clan_mainer_autocomplete(interaction: discord.Interaction, current: str):
+    """Search accepted clans; Discord returns at most 25 suggestions per request."""
+    if not interaction.guild:
+        return []
+    query = current.strip().casefold()
+    registrations = [
+        r for r in state.get("clanRegistrations", {}).values()
+        if r.get("guildId") == str(interaction.guild.id) and r.get("status") == "accepted"
+    ]
+    registrations.sort(key=lambda r: str(r.get("clanName", "")).casefold())
+    matches = [r for r in registrations if not query or query in str(r.get("clanName", "")).casefold() or query in str(r.get("clanGuildId", ""))]
+    return [app_commands.Choice(name=f"{str(r.get('clanName', 'Unnamed clan'))[:80]} ({str(r.get('clanGuildId', ''))[-8:]})", value=str(r.get("id", ""))[:100]) for r in matches[:25]]
+
+
+@tree.command(name="clan-mainers", description="View the active mainers of any registered clan.")
+@app_commands.describe(clan="Choose a registered clan to view its active mainers")
+@app_commands.autocomplete(clan=clan_mainer_autocomplete)
+async def clan_mainers(interaction: discord.Interaction, clan: str):
     if not interaction.guild:
         return await reply_private(interaction, "Use this command in the main server.")
-    registration = await clan_registration_for_leader(interaction.guild.id, interaction.user.id)
-    if not registration:
-        return await reply_private(interaction, "Only a registered clan owner can view their clan's mainers.")
+    registration = state.get("clanRegistrations", {}).get(clan)
+    if not registration or registration.get("guildId") != str(interaction.guild.id) or registration.get("status") != "accepted":
+        return await reply_private(interaction, "That clan is not an accepted registration in this server. Choose a clan from the autocomplete list.")
     mainers = active_clan_mainers(interaction.guild.id, registration)
     names = [f"<@{uid}>" for uid in mainers]
     description = "\n".join(f"{i+1}. {name}" for i, name in enumerate(names[:50])) or "No active mainers yet."
     if len(names) > 50:
         description += f"\n…and {len(names)-50} more."
     embed = discord.Embed(title=f"{registration['clanName']} | Mainers ({len(names)})", description=description, color=CYAN)
+    embed.set_footer(text="Public clan directory • Active mainers only")
     await interaction.response.send_message(embed=embed)
+
 
 @tree.command(name="clan-remove-mainer", description="Remove a member from your clan's active mainer list.")
 @app_commands.describe(member="Member to remove from your clan")
@@ -1096,6 +1114,7 @@ async def clan_remove_mainer(interaction: discord.Interaction, member: discord.M
     entries = [e for e in state.get("clanMains", []) if e.get("guildId") == str(interaction.guild.id) and e.get("userId") == str(member.id) and e.get("status", "active") == "active" and (e.get("clanRegistrationId") == registration.get("id") or (not e.get("clanRegistrationId") and str(e.get("clanGuildId")) == str(registration.get("clanGuildId"))))]
     if not entries:
         return await reply_private(interaction, "That member is not an active mainer of your clan.")
+    await interaction.response.defer(thinking=True)
     for entry in entries:
         entry["status"] = "removed"
         entry["removedAt"] = now()
@@ -1120,6 +1139,7 @@ async def lfclan(interaction: discord.Interaction, kills: app_commands.Range[int
     channel = interaction.guild.get_channel(int(channel_id)) if channel_id else None
     if not isinstance(channel, discord.TextChannel):
         return await reply_private(interaction, "The LFClan channel is not configured. Ask an administrator to use `/config lfclan-channel`.")
+    await interaction.response.defer(thinking=True)
     member = interaction.user
     def role_label(mapping):
         for label, rid in mapping.items():
@@ -1490,6 +1510,7 @@ async def main(interaction: discord.Interaction, code: app_commands.Range[str, 5
     if record.get("clanBlacklisted"):
         return await reply_private(interaction, "This clan is currently blacklisted and cannot be mained.")
 
+    await interaction.response.defer(thinking=True)
     created_at = now()
     main_id = f"{record['id']}-{interaction.user.id}-{secrets.token_hex(4)}"
     state.setdefault("clanMains", []).append({"id": main_id, "guildId": str(interaction.guild.id), "clanGuildId": record["clanGuildId"], "clanName": record["clanName"], "clanLeaderId": record["userId"], "userId": str(interaction.user.id), "createdAt": created_at})
@@ -1545,13 +1566,13 @@ async def process_temporary_bans():
             if guild is None: continue
             user_obj = discord.Object(id=int(entry["userId"]))
             try:
-                await guild.unban(user_obj, reason=f"Temporary ban expired • Case #{entry.get('caseId','?')}")
+                await guild.unban(user_obj, reason=f"Temporary ban expired â¢ Case #{entry.get('caseId','?')}")
             except discord.NotFound:
                 pass
             except (discord.Forbidden, discord.HTTPException):
                 continue
             embed = discord.Embed(title="Temporary Ban Expired", description=f"**Member ID:** `{entry['userId']}`\n**Original case:** `#{entry.get('caseId','?')}`\nThe scheduled unban was processed.", color=CYAN, timestamp=current)
-            embed.set_footer(text="TSBAF Moderation • Automated action")
+            embed.set_footer(text="TSBAF Moderation â¢ Automated action")
             await send_log(guild, embed)
             entries.remove(entry)
             changed = True
