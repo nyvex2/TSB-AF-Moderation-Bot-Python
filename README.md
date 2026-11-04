@@ -65,3 +65,13 @@ The default text-command prefix is a comma (,). The bot also accepts command sho
 - ,h — show the moderation help
 
 Full command names also work, for example ,timeout and ,ban. Use ,setprefix ! if you want to change the prefix. Prefix moderation commands require the appropriate staff permissions, and the bot needs the corresponding Discord permissions.
+
+
+## Clan moderation and recruitment
+
+- `/config clan-blacklist-role role:@Role` configures the role assigned to every active mainer of a blacklisted clan. Staff use `/blacklist-clan clan:<name-or-server-id> reason:<reason>` and `/unblacklist-clan clan:<name-or-server-id>`. Blacklisted clans cannot be mained.
+- `/clan-mainers` lets a registered clan owner view their own active mainers. `/clan-remove-mainer member:@Member` removes a member only from that owner's clan; other clan memberships are preserved.
+- `/config lfclan-channel channel:#channel` configures the recruitment channel. Members use `/lfclan kills:<number> device:<PC/Mobile/Console/Other>`; the bot reads their stage, power, and rank from their configured roles.
+- All `/config` commands, including `/config-show`, require the Discord Administrator permission. Prefix `,setprefix` is Administrator-only. Moderation commands check the corresponding Discord permission (Ban Members, Kick Members, Moderate Members, Manage Messages, Manage Channels, Manage Nicknames, or Manage Roles) or the configured staff role/admin access.
+
+Clan main records retain history; leader removals mark a membership inactive rather than deleting its historical record.

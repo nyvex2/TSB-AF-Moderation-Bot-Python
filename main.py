@@ -304,6 +304,18 @@ async def wait_for_dm(user: discord.User, prompt: str, timeout: int = 300) -> di
 
 
 # Prefix moderation commands
+def prefix_command_check(permission: str):
+    def predicate(ctx):
+        if not ctx.guild or not isinstance(ctx.author, discord.Member):
+            return False
+        if ctx.author.guild_permissions.administrator:
+            return True
+        role_id = guild_config(ctx.guild.id).get("staffRoleId")
+        if role_id and any(r.id == int(role_id) for r in ctx.author.roles):
+            return True
+        return bool(getattr(ctx.author.guild_permissions, permission, False))
+    return predicate
+
 def prefix_staff_check(ctx):
     if not ctx.guild or not isinstance(ctx.author, discord.Member):
         return False
@@ -405,7 +417,7 @@ async def show_prefix(ctx):
 
 @bot.command(name="setprefix")
 @commands.guild_only()
-@commands.has_guild_permissions(manage_guild=True)
+@commands.has_guild_permissions(administrator=True)
 async def set_prefix(ctx, prefix: str):
     if not 1 <= len(prefix) <= 5 or any(c.isspace() for c in prefix):
         return await ctx.send("Prefix must be 1–5 non-space characters.")
@@ -415,7 +427,7 @@ async def set_prefix(ctx, prefix: str):
 
 @bot.hybrid_command(name="ban", aliases=["b"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("ban_members"))
 async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"):
     await prefix_dm(member, f"You were banned from {ctx.guild.name}. Reason: {reason}")
     await ctx.guild.ban(member, reason=f"{ctx.author}: {reason}", delete_message_seconds=0)
@@ -424,7 +436,7 @@ async def prefix_ban(ctx, member: discord.Member, *, reason="No reason provided"
 
 @bot.hybrid_command(name="unban", aliases=["ub"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("ban_members"))
 async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
     try:
         user = await bot.fetch_user(user_id)
@@ -436,7 +448,7 @@ async def prefix_unban(ctx, user_id: int, *, reason="No reason provided"):
 
 @bot.hybrid_command(name="kick", aliases=["k"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("kick_members"))
 async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided"):
     await prefix_dm(member, f"You were kicked from {ctx.guild.name}. Reason: {reason}")
     await ctx.guild.kick(member, reason=f"{ctx.author}: {reason}")
@@ -445,7 +457,7 @@ async def prefix_kick(ctx, member: discord.Member, *, reason="No reason provided
 
 @bot.hybrid_command(name="timeout", aliases=["mute", "to"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("moderate_members"))
 async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="No reason provided"):
     delta = parse_duration(duration)
     if delta is None:
@@ -457,7 +469,7 @@ async def prefix_timeout(ctx, member: discord.Member, duration: str, *, reason="
 
 @bot.hybrid_command(name="untimeout", aliases=["unmute", "uto"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("moderate_members"))
 async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason provided"):
     await member.timeout(None, reason=f"{ctx.author}: {reason}")
     case = await prefix_case(ctx, "untimeout", member, reason)
@@ -498,7 +510,7 @@ async def prefix_clearwarnings(ctx, member: discord.Member):
 
 @bot.hybrid_command(name="purge", aliases=["clear", "p"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_messages"))
 async def prefix_purge(ctx, amount: int):
     if not 1 <= amount <= 100:
         return await ctx.send("Choose an amount from 1 to 100.")
@@ -509,7 +521,7 @@ async def prefix_purge(ctx, amount: int):
 
 @bot.hybrid_command(name="slowmode", aliases=["sm"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_channels"))
 async def prefix_slowmode(ctx, seconds: int):
     if not isinstance(ctx.channel, discord.TextChannel):
         return
@@ -520,7 +532,7 @@ async def prefix_slowmode(ctx, seconds: int):
 
 @bot.hybrid_command(name="lock", aliases=["l"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_channels"))
 async def prefix_lock(ctx, channel: discord.TextChannel = None):
     channel = channel or ctx.channel
     if not isinstance(channel, discord.TextChannel):
@@ -532,7 +544,7 @@ async def prefix_lock(ctx, channel: discord.TextChannel = None):
 
 @bot.hybrid_command(name="unlock", aliases=["ul"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_channels"))
 async def prefix_unlock(ctx, channel: discord.TextChannel = None):
     channel = channel or ctx.channel
     if not isinstance(channel, discord.TextChannel):
@@ -544,7 +556,7 @@ async def prefix_unlock(ctx, channel: discord.TextChannel = None):
 
 @bot.hybrid_command(name="softban", description="Ban a member and immediately unban them to clear recent messages.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("ban_members"))
 async def softban(ctx, member: discord.Member, *, reason="No reason provided"):
     if member == ctx.author or member == ctx.guild.owner or member.top_role >= ctx.author.top_role:
         return await ctx.send("This member cannot be softbanned due to role hierarchy or target restrictions.")
@@ -556,7 +568,7 @@ async def softban(ctx, member: discord.Member, *, reason="No reason provided"):
 
 @bot.hybrid_command(name="tempban", description="Temporarily ban a member for a specified duration.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("ban_members"))
 async def tempban(ctx, member: discord.Member, duration: str, *, reason="No reason provided"):
     delta = parse_duration(duration)
     if delta is None:
@@ -572,7 +584,7 @@ async def tempban(ctx, member: discord.Member, duration: str, *, reason="No reas
 
 @bot.hybrid_command(name="nick", description="Change a member's server nickname.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_nicknames"))
 async def nick(ctx, member: discord.Member, *, nickname: str = None):
     old = member.display_name
     await member.edit(nick=nickname, reason=f"Nickname updated by {ctx.author}")
@@ -581,7 +593,7 @@ async def nick(ctx, member: discord.Member, *, nickname: str = None):
 
 @bot.hybrid_command(name="roleadd", description="Add a role to a member.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_roles"))
 async def roleadd(ctx, member: discord.Member, role: discord.Role):
     if role.is_default() or role.managed or role >= ctx.guild.me.top_role or (not ctx.author.guild_permissions.administrator and role >= ctx.author.top_role):
         return await ctx.send("That role cannot be assigned due to staff or bot role hierarchy.")
@@ -591,7 +603,7 @@ async def roleadd(ctx, member: discord.Member, role: discord.Role):
 
 @bot.hybrid_command(name="roleremove", description="Remove a role from a member.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_roles"))
 async def roleremove(ctx, member: discord.Member, role: discord.Role):
     if role.is_default() or role.managed or role >= ctx.guild.me.top_role or (not ctx.author.guild_permissions.administrator and role >= ctx.author.top_role):
         return await ctx.send("That role cannot be removed due to staff or bot role hierarchy.")
@@ -618,35 +630,35 @@ async def purge_matching(ctx, amount: int, predicate, action: str, target=None):
 
 @bot.hybrid_command(name="purgeuser", description="Delete recent messages from one member in this channel.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_messages"))
 async def purgeuser(ctx, member: discord.Member, amount: int):
     if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
     await purge_matching(ctx, amount, lambda m: m.author.id == member.id, "purge-user", target=member)
 
 @bot.hybrid_command(name="purgebots", description="Delete recent messages sent by bots in this channel.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_messages"))
 async def purgebots(ctx, amount: int):
     if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
     await purge_matching(ctx, amount, lambda m: m.author.bot, "purge-bots")
 
 @bot.hybrid_command(name="purgelinks", description="Delete recent messages containing links.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_messages"))
 async def purgelinks(ctx, amount: int):
     if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
     await purge_matching(ctx, amount, lambda m: bool(re.search(r"https?://|discord\.gg/", m.content, re.I)), "purge-links")
 
 @bot.hybrid_command(name="purgefiles", description="Delete recent messages containing file attachments.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_messages"))
 async def purgefiles(ctx, amount: int):
     if not 1 <= amount <= 100: return await ctx.send("Choose an amount from 1 to 100.")
     await purge_matching(ctx, amount, lambda m: bool(m.attachments), "purge-files")
 
 @bot.hybrid_command(name="case", description="Look up a moderation case by its case ID.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("manage_messages"))
 async def case_lookup(ctx, case_id: int):
     record = next((r for r in reversed(state.get("moderationCases", [])) if int(r.get("caseId", 0)) == case_id and str(r.get("guildId")) == str(ctx.guild.id)), None)
     if not record: return await ctx.send("No moderation case with that ID was found in this server.")
@@ -683,7 +695,7 @@ async def mod_notes(ctx, member: discord.User):
 
 @bot.hybrid_command(name="voicekick", description="Disconnect a member from their current voice channel.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("kick_members"))
 async def voicekick(ctx, member: discord.Member, *, reason="No reason provided"):
     if not member.voice or not member.voice.channel: return await ctx.send("That member is not connected to a voice channel.")
     await member.move_to(None, reason=f"Voice disconnect by {ctx.author}: {reason}")
@@ -692,7 +704,7 @@ async def voicekick(ctx, member: discord.Member, *, reason="No reason provided")
 
 @bot.hybrid_command(name="voicemute", description="Server-mute a member in voice channels.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("moderate_members"))
 async def voicemute(ctx, member: discord.Member, *, reason="No reason provided"):
     if not member.voice: return await ctx.send("That member is not connected to a voice channel.")
     await member.edit(mute=True, reason=f"Server mute by {ctx.author}: {reason}")
@@ -701,7 +713,7 @@ async def voicemute(ctx, member: discord.Member, *, reason="No reason provided")
 
 @bot.hybrid_command(name="voiceunmute", description="Remove a server mute from a member.")
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("moderate_members"))
 async def voiceunmute(ctx, member: discord.Member, *, reason="No reason provided"):
     if not member.voice: return await ctx.send("That member is not connected to a voice channel.")
     await member.edit(mute=False, reason=f"Server unmute by {ctx.author}: {reason}")
@@ -976,11 +988,157 @@ async def stage_remove(interaction: discord.Interaction, user: discord.Member):
     await send_log(interaction.guild, embed)
 
 
+
+async def clan_registration_for_leader(guild_id: int, user_id: int):
+    return next((r for r in state["clanRegistrations"].values() if r.get("guildId") == str(guild_id) and r.get("status") == "accepted" and r.get("userId") == str(user_id)), None)
+
+def active_clan_mainers(guild_id: int, registration: dict[str, Any]):
+    reg_id = str(registration.get("id", ""))
+    clan_id = str(registration.get("clanGuildId", ""))
+    found = {}
+    for entry in state.get("clanMains", []):
+        if entry.get("guildId") != str(guild_id) or entry.get("status", "active") != "active":
+            continue
+        belongs = entry.get("clanRegistrationId") == reg_id or (not entry.get("clanRegistrationId") and str(entry.get("clanGuildId", "")) == clan_id)
+        if belongs:
+            found[str(entry.get("userId"))] = entry
+    return found
+
+async def sync_clan_blacklist_role(guild: discord.Guild, registration: dict[str, Any], add: bool):
+    role_id = guild_config(guild.id).get("clanBlacklistRoleId")
+    role = guild.get_role(int(role_id)) if role_id else None
+    if role is None:
+        return 0, "Clan blacklist role is not configured or no longer exists."
+    bot_member = guild.me
+    if not bot_member or role >= bot_member.top_role or role.managed or role.is_default():
+        return 0, "The bot cannot manage the configured clan-blacklist role; check role hierarchy."
+    mainers = active_clan_mainers(guild.id, registration)
+    changed = 0
+    for user_id in mainers:
+        member = guild.get_member(int(user_id))
+        if member is None:
+            try:
+                member = await guild.fetch_member(int(user_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                continue
+        # Do not remove the marker while the member still belongs to another blacklisted clan.
+        other_blacklisted = any(r.get("clanBlacklisted") and r.get("guildId") == str(guild.id) and r.get("id") != registration.get("id") and str(member.id) in active_clan_mainers(guild.id, r) for r in state["clanRegistrations"].values())
+        if add and role not in member.roles:
+            await member.add_roles(role, reason=f"Clan blacklisted: {registration.get('clanName')}"); changed += 1
+        elif not add and not other_blacklisted and role in member.roles:
+            await member.remove_roles(role, reason=f"Clan unblacklisted: {registration.get('clanName')}"); changed += 1
+    return changed, None
+
+@tree.command(name="blacklist-clan", description="Blacklist a registered clan and mark all its mainers.")
+@app_commands.describe(clan="Registered clan name or clan server ID", reason="Reason for the clan blacklist")
+async def blacklist_clan(interaction: discord.Interaction, clan: str, reason: app_commands.Range[str, 1, 500]):
+    if not interaction.guild or not is_staff(interaction):
+        return await reply_private(interaction, "Only configured staff or administrators can blacklist a clan.")
+    matches = [r for r in state["clanRegistrations"].values() if r.get("guildId") == str(interaction.guild.id) and r.get("status") == "accepted" and (r.get("clanName", "").casefold() == clan.casefold() or str(r.get("clanGuildId")) == clan)]
+    if len(matches) != 1:
+        return await reply_private(interaction, "I could not find exactly one accepted clan. Use its exact clan name or clan server ID.")
+    registration = matches[0]
+    if registration.get("clanBlacklisted"):
+        return await reply_private(interaction, "That clan is already blacklisted.")
+    await interaction.response.defer(thinking=True)
+    registration.update({"clanBlacklisted": True, "clanBlacklistReason": reason, "clanBlacklistedAt": now(), "clanBlacklistedBy": str(interaction.user.id)})
+    try:
+        changed, warning = await sync_clan_blacklist_role(interaction.guild, registration, True)
+    except discord.Forbidden:
+        registration["clanBlacklisted"] = False
+        return await reply_private(interaction, "Discord denied role assignment. Check Manage Roles and role hierarchy; no blacklist was applied.")
+    save_state()
+    embed = discord.Embed(title="Clan Blacklisted", description=f"**Clan:** {registration['clanName']}\n**Mainers marked:** {changed}\n**Reason:** {reason}\n**By:** {interaction.user.mention}" + (f"\n\n{warning}" if warning else ""), color=CYAN)
+    await reply_private(interaction, embed.description)
+
+@tree.command(name="unblacklist-clan", description="Unblacklist a clan and clear its mainers' blacklist role.")
+@app_commands.describe(clan="Registered clan name or clan server ID")
+async def unblacklist_clan(interaction: discord.Interaction, clan: str):
+    if not interaction.guild or not is_staff(interaction):
+        return await reply_private(interaction, "Only configured staff or administrators can unblacklist a clan.")
+    matches = [r for r in state["clanRegistrations"].values() if r.get("guildId") == str(interaction.guild.id) and r.get("status") == "accepted" and (r.get("clanName", "").casefold() == clan.casefold() or str(r.get("clanGuildId")) == clan)]
+    if len(matches) != 1:
+        return await reply_private(interaction, "I could not find exactly one accepted clan. Use its exact clan name or clan server ID.")
+    registration = matches[0]
+    if not registration.get("clanBlacklisted"):
+        return await reply_private(interaction, "That clan is not blacklisted.")
+    await interaction.response.defer(thinking=True)
+    registration["clanBlacklisted"] = False
+    registration["clanUnblacklistedAt"] = now()
+    registration["clanUnblacklistedBy"] = str(interaction.user.id)
+    changed, warning = await sync_clan_blacklist_role(interaction.guild, registration, False)
+    save_state()
+    await reply_private(interaction, f"Clan **{registration['clanName']}** unblacklisted. Removed the clan-blacklist role from {changed} mainer(s)." + (f" {warning}" if warning else ""))
+
+@tree.command(name="clan-mainers", description="Show the active mainers of your clan.")
+async def clan_mainers(interaction: discord.Interaction):
+    if not interaction.guild:
+        return await reply_private(interaction, "Use this command in the main server.")
+    registration = await clan_registration_for_leader(interaction.guild.id, interaction.user.id)
+    if not registration:
+        return await reply_private(interaction, "Only a registered clan owner can view their clan's mainers.")
+    mainers = active_clan_mainers(interaction.guild.id, registration)
+    names = [f"<@{uid}>" for uid in mainers]
+    description = "\n".join(f"{i+1}. {name}" for i, name in enumerate(names[:50])) or "No active mainers yet."
+    if len(names) > 50:
+        description += f"\n…and {len(names)-50} more."
+    embed = discord.Embed(title=f"{registration['clanName']} | Mainers ({len(names)})", description=description, color=CYAN)
+    await interaction.response.send_message(embed=embed)
+
+@tree.command(name="clan-remove-mainer", description="Remove a member from your clan's active mainer list.")
+@app_commands.describe(member="Member to remove from your clan")
+async def clan_remove_mainer(interaction: discord.Interaction, member: discord.Member):
+    if not interaction.guild:
+        return await reply_private(interaction, "Use this command in the main server.")
+    registration = await clan_registration_for_leader(interaction.guild.id, interaction.user.id)
+    if not registration:
+        return await reply_private(interaction, "Only a registered clan owner can remove their clan's mainers.")
+    entries = [e for e in state.get("clanMains", []) if e.get("guildId") == str(interaction.guild.id) and e.get("userId") == str(member.id) and e.get("status", "active") == "active" and (e.get("clanRegistrationId") == registration.get("id") or (not e.get("clanRegistrationId") and str(e.get("clanGuildId")) == str(registration.get("clanGuildId"))))]
+    if not entries:
+        return await reply_private(interaction, "That member is not an active mainer of your clan.")
+    for entry in entries:
+        entry["status"] = "removed"
+        entry["removedAt"] = now()
+        entry["removedBy"] = str(interaction.user.id)
+    # Remove the shared role only if they have no other active clan membership.
+    still_maining = any(e.get("guildId") == str(interaction.guild.id) and e.get("userId") == str(member.id) and e.get("status", "active") == "active" for e in state.get("clanMains", []))
+    role_id = guild_config(interaction.guild.id).get("clanMainerRoleId")
+    role = interaction.guild.get_role(int(role_id)) if role_id else None
+    if role and not still_maining and role in member.roles and interaction.guild.me and role < interaction.guild.me.top_role:
+        await member.remove_roles(role, reason=f"Removed from {registration['clanName']} by its owner")
+    save_state()
+    await reply_private(interaction, f"Removed {member.mention} from **{registration['clanName']}**. Their other clan memberships were left unchanged.")
+
+@tree.command(name="lfclan", description="Post your looking-for-clan profile.")
+@app_commands.describe(kills="Your kill count", device="Your gaming device")
+@app_commands.choices(device=[app_commands.Choice(name="PC", value="PC"), app_commands.Choice(name="Mobile", value="Mobile"), app_commands.Choice(name="Console", value="Console"), app_commands.Choice(name="Other", value="Other")])
+async def lfclan(interaction: discord.Interaction, kills: app_commands.Range[int, 0, 1000000], device: app_commands.Choice[str]):
+    if not interaction.guild:
+        return await reply_private(interaction, "Use this command in the main server.")
+    cfg = guild_config(interaction.guild.id)
+    channel_id = cfg.get("lfClanChannelId")
+    channel = interaction.guild.get_channel(int(channel_id)) if channel_id else None
+    if not isinstance(channel, discord.TextChannel):
+        return await reply_private(interaction, "The LFClan channel is not configured. Ask an administrator to use `/config lfclan-channel`.")
+    member = interaction.user
+    def role_label(mapping):
+        for label, rid in mapping.items():
+            role = interaction.guild.get_role(int(rid))
+            if role and role in member.roles:
+                return str(label).upper()
+        return "Not set"
+    stage = role_label(cfg.get("stageRoles", {}))
+    power = role_label(cfg.get("stagePowerRoles", {}))
+    rank = role_label(cfg.get("stageRankRoles", {}))
+    embed = discord.Embed(title="Looking For Clan", description=f"**Member:** {member.mention}\n**Kills:** {kills:,}\n**Stage:** {stage}\n**Power:** {power}\n**Rank:** {rank}\n**Device:** {device.value}", color=CYAN, timestamp=datetime.now(timezone.utc))
+    await channel.send(embed=embed)
+    await reply_private(interaction, f"Your LFClan profile was posted in {channel.mention}.")
+
 config_group = app_commands.Group(name="config", description="Configure the moderation bot.")
 
 async def config_guard(interaction: discord.Interaction) -> bool:
-    if not interaction.guild or not interaction.user.guild_permissions.manage_guild:
-        await reply_private(interaction, "You need Manage Server.")
+    if not interaction.guild or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
+        await reply_private(interaction, "Only server administrators can use /config.")
         return False
     return True
 
@@ -1199,6 +1357,21 @@ async def config_clan_mainer_role(interaction: discord.Interaction, role: discor
     save_state()
     await reply_private(interaction, f"Clan mainer role set to {role.mention}. It will be assigned whenever a member successfully uses `/main`.")
 
+@config_group.command(name="clan-blacklist-role", description="Set the role assigned to all mainers of blacklisted clans.")
+async def config_clan_blacklist_role(interaction: discord.Interaction, role: discord.Role):
+    if not await config_guard(interaction): return
+    bot_member = interaction.guild.me
+    if role.is_default() or role.managed or not bot_member or role >= bot_member.top_role:
+        return await reply_private(interaction, "Choose a normal role below the bot's highest role.")
+    guild_config(interaction.guild.id)["clanBlacklistRoleId"] = str(role.id); save_state()
+    await reply_private(interaction, f"Clan blacklist role set to {role.mention}. It is assigned to every active mainer when a clan is blacklisted.")
+
+@config_group.command(name="lfclan-channel", description="Set the channel for /lfclan posts.")
+async def config_lfclan_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not await config_guard(interaction): return
+    guild_config(interaction.guild.id)["lfClanChannelId"] = str(channel.id); save_state()
+    await reply_private(interaction, f"LFClan posts will be sent to {channel.mention}.")
+
 @config_group.command(name="questions", description="Set up to five DM application questions separated by |.")
 async def config_questions(interaction: discord.Interaction, questions: app_commands.Range[str, 1, 1000]):
     if not await config_guard(interaction): return
@@ -1214,8 +1387,8 @@ tree.add_command(config_group)
 async def config_show(interaction: discord.Interaction):
     if not await config_guard(interaction): return
     c = guild_config(interaction.guild.id)
-    lines = [f"**{label}:** {f'<#{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Logs", "logChannelId"), ("Blacklist logs", "blacklistLogChannelId"), ("Applications", "applicationChannelId"), ("Clan registration logs", "clanRegistrationChannelId"), ("Clan main logs", "clanMainLogChannelId")]]
-    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId"), ("Clan leader role", "clanLeaderRoleId"), ("Clan mainer role", "clanMainerRoleId")]]
+    lines = [f"**{label}:** {f'<#{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Logs", "logChannelId"), ("Blacklist logs", "blacklistLogChannelId"), ("Applications", "applicationChannelId"), ("Clan registration logs", "clanRegistrationChannelId"), ("Clan main logs", "clanMainLogChannelId"), ("LFClan channel", "lfClanChannelId")]]
+    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId"), ("Clan leader role", "clanLeaderRoleId"), ("Clan mainer role", "clanMainerRoleId"), ("Clan blacklist role", "clanBlacklistRoleId")]]
     jail_channels = c.get("jailChannelIds", [])
     lines.append("**Jail allowed channels:** " + (", ".join(f"<#{cid}>" for cid in jail_channels) if jail_channels else "None configured"))
     lines.append("**Numbered stage roles:** " + (", ".join(f"Stage {number}: <@&{rid}>" for number, rid in sorted(c.get("stageRoles", {}).items(), key=lambda item: int(item[0]))) or "Not configured"))
@@ -1314,6 +1487,8 @@ async def main(interaction: discord.Interaction, code: app_commands.Range[str, 5
     record = next((r for r in state["clanRegistrations"].values() if r.get("guildId") == str(interaction.guild.id) and r.get("status") == "accepted" and str(r.get("clanCode", "")).upper() == code), None)
     if not record:
         return await reply_private(interaction, "That clan code is invalid or is not registered in this server.")
+    if record.get("clanBlacklisted"):
+        return await reply_private(interaction, "This clan is currently blacklisted and cannot be mained.")
 
     created_at = now()
     main_id = f"{record['id']}-{interaction.user.id}-{secrets.token_hex(4)}"
