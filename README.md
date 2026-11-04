@@ -70,8 +70,12 @@ Full command names also work, for example ,timeout and ,ban. Use ,setprefix ! if
 ## Clan moderation and recruitment
 
 - `/config clan-blacklist-role role:@Role` configures the role assigned to every active mainer of a blacklisted clan. Staff use `/blacklist-clan clan:<name-or-server-id> reason:<reason>` and `/unblacklist-clan clan:<name-or-server-id>`. Blacklisted clans cannot be mained.
-- `/clan-mainers` lets a registered clan owner view their own active mainers. `/clan-remove-mainer member:@Member` removes a member only from that owner's clan; other clan memberships are preserved.
+- `/clan-mainers clan:<clan>` is public: anyone can select any accepted clan from searchable autocomplete and view its active mainers. `/clan-remove-mainer member:@Member` remains restricted to that clan's owner; other clan memberships are preserved.
 - `/config lfclan-channel channel:#channel` configures the recruitment channel. Members use `/lfclan kills:<number> device:<PC/Mobile/Console/Other>`; the bot reads their stage, power, and rank from their configured roles.
 - All `/config` commands, including `/config-show`, require the Discord Administrator permission. Prefix `,setprefix` is Administrator-only. Moderation commands check the corresponding Discord permission (Ban Members, Kick Members, Moderate Members, Manage Messages, Manage Channels, Manage Nicknames, or Manage Roles) or the configured staff role/admin access.
 
 Clan main records retain history; leader removals mark a membership inactive rather than deleting its historical record.
+
+
+### Slash-command response timing
+Commands that perform slower Discord API work defer their interaction response first, so Discord shows that the bot is processing instead of timing out before the operation completes.
