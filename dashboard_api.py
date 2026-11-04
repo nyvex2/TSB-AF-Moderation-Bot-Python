@@ -209,6 +209,7 @@ class ApplicationPanelModal(discord.ui.Modal):
         raw=self.panel.get("reviewChannel") or cfg.get("applicationChannelId")
         channel=guild.get_channel(int(raw)) if guild and str(raw).isdigit() else None
         if not isinstance(channel,discord.TextChannel): return await interaction.response.send_message("Application review channel is not configured.",ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
         appid=f"{guild.id}-{interaction.user.id}-{int(time.time())}-{secrets.token_hex(3)}"
         answers=[str(x.value) for x in self.inputs]
         self.state["applications"][appid]={"id":appid,"guildId":str(guild.id),"userId":str(interaction.user.id),"answers":answers,"questions":[q.get("label","") for q in self.panel.get("questions",[])[:5]],"panelId":self.panel["id"],"panelName":self.panel.get("name","Application"),"reviewRoleId":str(self.panel.get("staffRole","")),"status":"pending","createdAt":discord.utils.utcnow().isoformat()}
@@ -216,7 +217,7 @@ class ApplicationPanelModal(discord.ui.Modal):
         embed=discord.Embed(title=f"New {self.panel.get('name','Application')}",description=f"Applicant: {interaction.user.mention}\\nApplication ID: {appid}",color=discord.Color.gold())
         for q,a in zip(self.panel.get("questions",[])[:5],answers): embed.add_field(name=str(q.get("label","Answer"))[:256],value=a[:1024] or "No answer",inline=False)
         await channel.send(embed=embed,view=self.review_view("app",appid))
-        await interaction.response.send_message("Application submitted for staff review.",ephemeral=True)
+        await interaction.followup.send("Application submitted for staff review.",ephemeral=True)
 
 async def start_dashboard_api(bot,state,guild_config,save_state,review_view):
     api=DashboardAPI(bot,state,guild_config,save_state,review_view); app=api.app()
