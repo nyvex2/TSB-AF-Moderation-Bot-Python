@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from dashboard_api import start_dashboard_api, ApplicationPanelView
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -288,11 +289,15 @@ class ReviewView(discord.ui.View):
 
     def make_callback(self, decision: str):
         async def callback(interaction: discord.Interaction):
-            if not staff_button(interaction):
-                await reply_private(interaction, "Only configured staff can review this request.")
-                return
             bucket = "applications" if self.kind == "app" else "clanRegistrations"
             record = state[bucket].get(self.record_id)
+            if not staff_button(interaction):
+                required_role = record.get("reviewRoleId") if record else None
+                member = interaction.user
+                has_panel_role = bool(required_role and isinstance(member, discord.Member) and any(role.id == int(required_role) for role in member.roles))
+                if not has_panel_role:
+                    await reply_private(interaction, "Only configured staff can review this request.")
+                    return
             if not record or record.get("guildId") != str(interaction.guild_id):
                 await reply_private(interaction, "Request not found.")
                 return
@@ -1645,6 +1650,10 @@ async def on_ready():
             synced = await tree.sync()
         print(f"Synced {len(synced)} slash commands")
         bot._synced = True
+    for guild in bot.guilds:
+        for panel in guild_config(guild.id).get("dashboardApplications", []):
+            if panel.get("enabled") and panel.get("messageId"):
+                bot.add_view(ApplicationPanelView(bot, state, guild_config, save_state, ReviewView, guild.id, panel))
     for kind, bucket in (("app", "applications"), ("clan", "clanRegistrations")):
         for record_id, record in state[bucket].items():
             if record.get("status") == "pending":
@@ -1654,6 +1663,7 @@ async def main_async():
     global state
     state = load_state()
     try:
+        asyncio.create_task(start_dashboard_api(bot, state, guild_config, save_state, ReviewView))
         await bot.start(TOKEN)
     finally:
         save_state()
