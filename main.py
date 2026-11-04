@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 import secrets
+import string
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -250,20 +251,46 @@ class ReviewView(discord.ui.View):
             record["status"] = decision
             record["reviewedBy"] = str(interaction.user.id)
             user = await bot.fetch_user(int(record["userId"]))
+            role_status = ""
             if self.kind == "clan" and decision == "accepted":
-                code = str(secrets.randbelow(900000) + 100000)
-                used = {r.get("clanCode") for r in state["clanRegistrations"].values()}
+                alphabet = string.ascii_uppercase + string.digits
+                code = "".join(secrets.choice(alphabet) for _ in range(5))
+                used = {str(r.get("clanCode", "")).upper() for r in state["clanRegistrations"].values()}
                 while code in used:
-                    code = str(secrets.randbelow(900000) + 100000)
+                    code = "".join(secrets.choice(alphabet) for _ in range(5))
                 record["clanCode"] = code
                 record.pop("mainUserId", None)
                 record.pop("mainedAt", None)
-                await user.send(f"Your clan **{record['clanName']}** has been registered.\n\nSecret clan code: **{code}**\nKeep it private. The member who mains your clan can use `/main code:{code}`.")
+
+                leader_role_id = guild_config(interaction.guild.id).get("clanLeaderRoleId")
+                if leader_role_id:
+                    leader_role = interaction.guild.get_role(int(leader_role_id))
+                    bot_member = interaction.guild.me
+                    leader_member = interaction.guild.get_member(int(record["userId"]))
+                    if leader_member is None:
+                        try:
+                            leader_member = await interaction.guild.fetch_member(int(record["userId"]))
+                        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                            leader_member = None
+                    if not leader_role or leader_role.is_default() or leader_role.managed:
+                        role_status = "\n\n**Role notice:** The configured clan leader role is missing or cannot be assigned."
+                    elif not bot_member or leader_role >= bot_member.top_role:
+                        role_status = "\n\n**Role notice:** Move the bot's highest role above the configured clan leader role."
+                    elif leader_member is None:
+                        role_status = "\n\n**Role notice:** The clan owner is not currently in this server, so the leader role was not assigned."
+                    elif leader_role not in leader_member.roles:
+                        try:
+                            await leader_member.add_roles(leader_role, reason=f"Clan registration accepted: {record['clanName']}")
+                            record["leaderRoleAssigned"] = True
+                        except discord.Forbidden:
+                            role_status = "\n\n**Role notice:** Discord denied the clan leader role assignment. Check bot permissions and role hierarchy."
+
+                await user.send(f"Your clan **{record['clanName']}** has been registered.\n\nPermanent clan code: **{code}**\nThis 5-character code can be used by any member, any number of times, with no expiry. Use `/main code:{code}` in the main server.")
             else:
                 label = "application" if self.kind == "app" else "clan registration"
                 await user.send(f"Your {label} for **{interaction.guild.name}** was **{decision}**.")
             save_state()
-            await interaction.response.edit_message(content=f"Reviewed: **{decision}** by {interaction.user.mention}.", view=None)
+            await interaction.response.edit_message(content=f"Reviewed: **{decision}** by {interaction.user.mention}.{role_status}", view=None)
         return callback
 
 async def wait_for_dm(user: discord.User, prompt: str, timeout: int = 300) -> discord.Message | None:
@@ -1135,8 +1162,30 @@ async def config_clan_logs(interaction: discord.Interaction, channel: discord.Te
 @config_group.command(name="clan-news", description="Set the channel for clan-main announcements.")
 async def config_clan_news(interaction: discord.Interaction, channel: discord.TextChannel):
     if not await config_guard(interaction): return
-    guild_config(interaction.guild.id)["clanNewsChannelId"] = str(channel.id); save_state()
-    await reply_private(interaction, f"Clan news channel set to {channel.mention}.")
+    cfg = guild_config(interaction.guild.id)
+    cfg["clanNewsChannelId"] = str(channel.id)
+    cfg["clanMainLogChannelId"] = str(channel.id)
+    save_state()
+    await reply_private(interaction, f"Clan main logs set to {channel.mention}.")
+
+@config_group.command(name="clan-main-logs", description="Set the channel where every clan main is logged.")
+async def config_clan_main_logs(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not await config_guard(interaction): return
+    guild_config(interaction.guild.id)["clanMainLogChannelId"] = str(channel.id)
+    save_state()
+    await reply_private(interaction, f"Clan main logs set to {channel.mention}.")
+
+@config_group.command(name="clan-leader-role", description="Set the role given to a clan owner when their registration is accepted.")
+async def config_clan_leader_role(interaction: discord.Interaction, role: discord.Role):
+    if not await config_guard(interaction): return
+    if role.is_default() or role.managed:
+        return await reply_private(interaction, "Choose a normal, assignable server role.")
+    bot_member = interaction.guild.me
+    if not bot_member or role >= bot_member.top_role:
+        return await reply_private(interaction, "Move the bot's highest role above the clan leader role before configuring it.")
+    guild_config(interaction.guild.id)["clanLeaderRoleId"] = str(role.id)
+    save_state()
+    await reply_private(interaction, f"Clan leader role set to {role.mention}. It will be assigned when a clan registration is accepted.")
 
 @config_group.command(name="questions", description="Set up to five DM application questions separated by |.")
 async def config_questions(interaction: discord.Interaction, questions: app_commands.Range[str, 1, 1000]):
@@ -1153,8 +1202,8 @@ tree.add_command(config_group)
 async def config_show(interaction: discord.Interaction):
     if not await config_guard(interaction): return
     c = guild_config(interaction.guild.id)
-    lines = [f"**{label}:** {f'<#{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Logs", "logChannelId"), ("Blacklist logs", "blacklistLogChannelId"), ("Applications", "applicationChannelId"), ("Clan registration logs", "clanRegistrationChannelId"), ("Clan news", "clanNewsChannelId")]]
-    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId")]]
+    lines = [f"**{label}:** {f'<#{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Logs", "logChannelId"), ("Blacklist logs", "blacklistLogChannelId"), ("Applications", "applicationChannelId"), ("Clan registration logs", "clanRegistrationChannelId"), ("Clan main logs", "clanMainLogChannelId")]]
+    lines += [f"**{label}:** {f'<@&{c[key]}>' if c.get(key) else 'Not configured'}" for label, key in [("Staff role", "staffRoleId"), ("Blacklist permission role", "blacklistPermsRoleId"), ("Blacklist / jail role", "blacklistRoleId"), ("Tryout host role", "tryoutHostRoleId"), ("Clan leader role", "clanLeaderRoleId")]]
     jail_channels = c.get("jailChannelIds", [])
     lines.append("**Jail allowed channels:** " + (", ".join(f"<#{cid}>" for cid in jail_channels) if jail_channels else "None configured"))
     lines.append("**Numbered stage roles:** " + (", ".join(f"Stage {number}: <@&{rid}>" for number, rid in sorted(c.get("stageRoles", {}).items(), key=lambda item: int(item[0]))) or "Not configured"))
@@ -1242,26 +1291,42 @@ async def clan_register(interaction: discord.Interaction):
     await channel.send(embed=embed, view=ReviewView("clan", reg_id))
     await dm.send("Your clan registration has been submitted. Staff will review it.")
 
-@tree.command(name="main", description="Main a registered clan using its one-time secret code.")
-@app_commands.describe(code="The six-digit secret clan code")
-async def main(interaction: discord.Interaction, code: app_commands.Range[str, 6, 6]):
+@tree.command(name="main", description="Main a registered clan using its permanent 5-character code.")
+@app_commands.describe(code="The 5-character clan code (letters and numbers)")
+async def main(interaction: discord.Interaction, code: app_commands.Range[str, 5, 6]):
     if not interaction.guild:
         return await reply_private(interaction, "Use this command in the main server.")
-    record = next((r for r in state["clanRegistrations"].values() if r.get("guildId") == str(interaction.guild.id) and r.get("status") == "accepted" and r.get("clanCode") == code), None)
+    code = code.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{5,6}", code):
+        return await reply_private(interaction, "Clan codes must contain 5 letters/numbers. Older 6-digit codes remain supported.")
+    record = next((r for r in state["clanRegistrations"].values() if r.get("guildId") == str(interaction.guild.id) and r.get("status") == "accepted" and str(r.get("clanCode", "")).upper() == code), None)
     if not record:
         return await reply_private(interaction, "That clan code is invalid or is not registered in this server.")
-    if record.get("mainUserId"):
-        return await reply_private(interaction, "This clan has already been mained. The code can only be used once.")
-    record["mainUserId"] = str(interaction.user.id)
-    record["mainedAt"] = now()
-    state["clanMains"].append({"id": f"{record['id']}-{interaction.user.id}", "guildId": str(interaction.guild.id), "clanGuildId": record["clanGuildId"], "clanName": record["clanName"], "clanLeaderId": record["userId"], "userId": str(interaction.user.id), "createdAt": record["mainedAt"]})
+
+    created_at = now()
+    main_id = f"{record['id']}-{interaction.user.id}-{secrets.token_hex(4)}"
+    state.setdefault("clanMains", []).append({"id": main_id, "guildId": str(interaction.guild.id), "clanGuildId": record["clanGuildId"], "clanName": record["clanName"], "clanLeaderId": record["userId"], "userId": str(interaction.user.id), "createdAt": created_at})
     save_state()
-    news_id = guild_config(interaction.guild.id).get("clanNewsChannelId")
+
+    cfg = guild_config(interaction.guild.id)
+    news_id = cfg.get("clanMainLogChannelId") or cfg.get("clanNewsChannelId")
+    logged = False
     if news_id:
         channel = interaction.guild.get_channel(int(news_id))
+        if channel is None:
+            try:
+                channel = await bot.fetch_channel(int(news_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                channel = None
         if isinstance(channel, discord.TextChannel):
-            await channel.send(embed=discord.Embed(title="Clan Mained", description=f"{interaction.user.mention} has mained **{record['clanName']}**.\n\n**Clan Leader:** <@{record['userId']}>", color=CYAN, timestamp=datetime.now(timezone.utc)))
-    await reply_private(interaction, f"You have successfully mained **{record['clanName']}**. The code has been used.")
+            embed = discord.Embed(title="Clan Mained", description=f"**Member**\n{interaction.user.mention}\n\n**Clan**\n{record['clanName']}\n\n**Clan Leader / Owner**\n<@{record['userId']}>\n\n**Clan Server**\n`{record['clanGuildId']}`", color=CYAN, timestamp=datetime.now(timezone.utc))
+            embed.set_footer(text=f"Main record: {main_id}")
+            await channel.send(embed=embed)
+            logged = True
+    status = f"You have successfully mained **{record['clanName']}**. This code remains active and can be reused without a limit."
+    if not logged:
+        status += "\n\nClan main logs are not configured or the log channel is unavailable. Ask staff to run `/config clan-main-logs`."
+    await reply_private(interaction, status)
 
 @tasks.loop(minutes=1)
 async def process_temporary_bans():
