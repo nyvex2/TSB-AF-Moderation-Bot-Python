@@ -12,7 +12,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from pymongo import MongoClient
-from dashboard_api import start_dashboard_api, ApplicationPanelView
+from dashboard_api import start_dashboard_api, ApplicationPanelView, MultiApplicationPanelView
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -1651,9 +1651,15 @@ async def on_ready():
         print(f"Synced {len(synced)} slash commands")
         bot._synced = True
     for guild in bot.guilds:
-        for panel in guild_config(guild.id).get("dashboardApplications", []):
-            if panel.get("enabled") and panel.get("messageId"):
-                bot.add_view(ApplicationPanelView(bot, state, guild_config, save_state, ReviewView, guild.id, panel))
+        cfg=guild_config(guild.id)
+        if cfg.get("multiApplicationPanel") and cfg.get("multiApplicationMessageId"):
+            enabled=[p for p in cfg.get("dashboardApplications",[]) if p.get("enabled")]
+            if enabled:
+                bot.add_view(MultiApplicationPanelView(bot,state,guild_config,save_state,ReviewView,guild.id,enabled))
+        else:
+            for panel in cfg.get("dashboardApplications", []):
+                if panel.get("enabled") and panel.get("messageId"):
+                    bot.add_view(ApplicationPanelView(bot, state, guild_config, save_state, ReviewView, guild.id, panel))
     for kind, bucket in (("app", "applications"), ("clan", "clanRegistrations")):
         for record_id, record in state[bucket].items():
             if record.get("status") == "pending":

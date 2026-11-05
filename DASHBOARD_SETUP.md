@@ -21,3 +21,11 @@ Keep DISCORD_TOKEN, MONGODB_URI and MONGODB_DB. The Wispbyte bot service must ex
 Redeploy the Vercel project after adding the variables. Do not expose bot credentials or database secrets as VITE_ variables.
 
 Application panel submissions are saved in the existing MongoDB state. Panels support up to five modal questions, a separate panel channel, review channel and reviewer role. The bot restores published application buttons after restart.
+
+## Access control
+
+The dashboard requires Discord OAuth login. Only users with the Administrator permission in a server where the bot is installed can see that server in the dashboard. The bot API re-checks the member's current Administrator permission for every server-scoped request; Manage Server alone is not sufficient.
+
+## Combined application message
+
+Enable Multi-Application Panel in the dashboard, choose a shared text channel, enable the applications to include, save, and publish the combined panel. The bot posts one embed with a separate persistent button for each enabled application (up to 25). Each button opens that application's own modal and routes submissions to its configured review channel and staff role.
