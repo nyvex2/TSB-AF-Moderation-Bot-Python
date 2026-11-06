@@ -118,7 +118,7 @@ class DashboardAPI:
             ch=guild.get_channel(int(c[k])) if c.get(k) and str(c[k]).isdigit() else None; out[k]=ch.name if ch else ""
         for k in ("staffRoleId","blacklistPermsRoleId","blacklistRoleId","tryoutHostRoleId","clanLeaderRoleId","clanMainerRoleId","clanBlacklistRoleId","jailRoleId"):
             role=guild.get_role(int(c[k])) if c.get(k) and str(c[k]).isdigit() else None; out[k]=role.name if role else ""
-        out["channels"]=[{"id":str(x.id),"name":x.name} for x in guild.text_channels]
+        out["channels"]=[{"id":str(x.id),"name":x.name,"type":x.type.name,"category":x.category.name if getattr(x,"category",None) else None} for x in guild.channels]
         out["roles"]=[{"id":str(x.id),"name":x.name} for x in guild.roles if not x.is_default() and not x.managed]
         panels=[]
         for panel in c.get("dashboardApplications", []):
