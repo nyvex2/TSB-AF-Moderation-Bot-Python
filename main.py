@@ -563,7 +563,7 @@ async def prefix_untimeout(ctx, member: discord.Member, *, reason="No reason pro
 
 @bot.hybrid_command(name="warn", aliases=["w"])
 @commands.guild_only()
-@commands.check(prefix_staff_check)
+@commands.check(prefix_command_check("moderate_members"))
 async def prefix_warn(ctx, member: discord.Member, *, reason="No reason provided"):
     key = f"{ctx.guild.id}:{member.id}"
     rows = state.setdefault("warnings", {}).setdefault(key, [])
