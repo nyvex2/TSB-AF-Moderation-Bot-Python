@@ -361,9 +361,8 @@ class ApplicationPanelView(discord.ui.View):
         b.callback=self.start_dm; self.add_item(b)
     async def start_dm(self,interaction):
         if interaction.guild_id!=self.guild_id: return await interaction.response.send_message("Wrong server.",ephemeral=True)
-        await interaction.response.defer(ephemeral=True,thinking=True)
-        message=await run_application_dm(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,self.panel,interaction.user)
-        await interaction.followup.send(message,ephemeral=True)
+        await interaction.response.send_message("I've sent you a DM to start the application. Reply to each question there. If you don't receive it, enable DMs from this server and try again.",ephemeral=True)
+        asyncio.create_task(run_application_dm(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,self.panel,interaction.user))
 
 class MultiApplicationPanelView(discord.ui.View):
     def __init__(self,bot,state,guild_config,save_state,review_view,guild_id,panels):
@@ -372,9 +371,8 @@ class MultiApplicationPanelView(discord.ui.View):
             button=discord.ui.Button(label=str(panel.get("buttonText","Apply"))[:80],style=discord.ButtonStyle.primary,custom_id=f"tsbaf:apply:{guild_id}:{panel['id']}")
             async def callback(interaction, selected=panel):
                 if interaction.guild_id!=self.guild_id: return await interaction.response.send_message("Wrong server.",ephemeral=True)
-                await interaction.response.defer(ephemeral=True,thinking=True)
-                message=await run_application_dm(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,selected,interaction.user)
-                await interaction.followup.send(message,ephemeral=True)
+                await interaction.response.send_message("I've sent you a DM to start the application. Reply to each question there. If you don't receive it, enable DMs from this server and try again.",ephemeral=True)
+                asyncio.create_task(run_application_dm(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,selected,interaction.user))
             button.callback=callback; self.add_item(button)
 
 async def start_dashboard_api(bot,state,guild_config,save_state,review_view):
