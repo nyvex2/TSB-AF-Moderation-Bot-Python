@@ -36,21 +36,36 @@ class DashboardAPI:
     async def user_guilds(self, session):
         lock=session.setdefault("refresh_lock",asyncio.Lock())
         async with lock:
-            if session.get("expires_at",0)<=time.time()+60:
+            async def refresh_token(client):
                 refresh=session.get("refresh_token")
-                if not refresh: raise web.HTTPUnauthorized(text="Discord session expired. Sign in again.")
-                async with aiohttp.ClientSession() as client:
-                    async with client.post("https://discord.com/api/oauth2/token",data={"client_id":self.cid,"client_secret":self.secret,"grant_type":"refresh_token","refresh_token":refresh}) as response:
-                        renewed=await response.json()
-                        if response.status!=200: raise web.HTTPUnauthorized(text="Discord session expired. Sign in again.")
+                if not refresh:
+                    raise web.HTTPUnauthorized(text="Discord session expired. Sign in again.")
+                async with client.post("https://discord.com/api/oauth2/token",data={"client_id":self.cid,"client_secret":self.secret,"grant_type":"refresh_token","refresh_token":refresh}) as response:
+                    renewed=await response.json()
+                    if response.status!=200:
+                        raise web.HTTPUnauthorized(text="Discord session expired. Sign in again.")
                 session["access_token"]=renewed["access_token"]
                 session["refresh_token"]=renewed.get("refresh_token",refresh)
                 session["expires_at"]=time.time()+int(renewed.get("expires_in",3600))
-        async with aiohttp.ClientSession() as client:
-            async with client.get("https://discord.com/api/users/@me/guilds",headers={"Authorization":"Bearer "+session["access_token"]}) as response:
-                guilds=await response.json()
-                if response.status!=200: raise web.HTTPUnauthorized(text="Could not verify Discord permissions. Sign in again.")
-        return guilds if isinstance(guilds,list) else []
+            async with aiohttp.ClientSession() as client:
+                if session.get("expires_at",0)<=time.time()+90:
+                    await refresh_token(client)
+                for attempt in range(4):
+                    async with client.get("https://discord.com/api/users/@me/guilds",headers={"Authorization":"Bearer "+session["access_token"]}) as response:
+                        if response.status==200:
+                            guilds=await response.json()
+                            return guilds if isinstance(guilds,list) else []
+                        if response.status==401 and attempt==0:
+                            await refresh_token(client)
+                            continue
+                        if response.status==429 and attempt<3:
+                            try: delay=float((await response.json()).get("retry_after",1))
+                            except Exception: delay=1
+                            await asyncio.sleep(min(max(delay,0.5),5))
+                            continue
+                        status=response.status
+                        raise web.HTTPBadGateway(text=f"Discord could not return your server list (HTTP {status}). Please retry; if it continues, sign in again.")
+        raise web.HTTPBadGateway(text="Discord server list is temporarily unavailable. Please retry.")
     async def access(self, request, gid):
         claims=self.verify(request.cookies.get("tsbaf_session"))
         session=self.sessions.get(claims.get("sid")) if claims else None
