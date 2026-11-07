@@ -308,7 +308,34 @@ class ReviewView(discord.ui.View):
             record["reviewedBy"] = str(interaction.user.id)
             user = await bot.fetch_user(int(record["userId"]))
             role_status = ""
-            if self.kind == "clan" and decision == "accepted":
+            if self.kind == "app" and decision == "accepted":
+                accepted_role_id = record.get("acceptedRoleId")
+                if accepted_role_id:
+                    accepted_role = interaction.guild.get_role(int(accepted_role_id))
+                    accepted_member = interaction.guild.get_member(int(record["userId"]))
+                    if accepted_member is None:
+                        try:
+                            accepted_member = await interaction.guild.fetch_member(int(record["userId"]))
+                        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                            accepted_member = None
+                    bot_member = interaction.guild.me
+                    if not accepted_role or accepted_role.is_default() or accepted_role.managed:
+                        role_status = "\n\n**Role notice:** The configured accepted role is missing or cannot be assigned."
+                    elif not bot_member or accepted_role >= bot_member.top_role:
+                        role_status = "\n\n**Role notice:** Move the bot's highest role above the accepted role."
+                    elif accepted_member is None:
+                        role_status = "\n\n**Role notice:** The applicant is not currently in this server, so the accepted role was not assigned."
+                    elif accepted_role not in accepted_member.roles:
+                        try:
+                            await accepted_member.add_roles(accepted_role, reason=f"Application accepted: {record.get('panelName', 'Application')}")
+                            record["acceptedRoleAssigned"] = True
+                        except discord.Forbidden:
+                            role_status = "\n\n**Role notice:** Discord denied the accepted role assignment. Check Manage Roles and role hierarchy."
+                try:
+                    await user.send(f"Your **{record.get('panelName', 'application')}** for **{interaction.guild.name}** was **accepted**.{role_status}")
+                except (discord.Forbidden, discord.HTTPException):
+                    role_status += "\n\n**Notice:** I could not DM the applicant with the decision."
+            elif self.kind == "clan" and decision == "accepted":
                 alphabet = string.ascii_uppercase + string.digits
                 code = "".join(secrets.choice(alphabet) for _ in range(5))
                 used = {str(r.get("clanCode", "")).upper() for r in state["clanRegistrations"].values()}
@@ -344,7 +371,10 @@ class ReviewView(discord.ui.View):
                 await user.send(f"Your clan **{record['clanName']}** has been registered.\n\nPermanent clan code: **{code}**\nThis 5-character code can be used by any member, any number of times, with no expiry. Use `/main code:{code}` in the main server.")
             else:
                 label = "application" if self.kind == "app" else "clan registration"
-                await user.send(f"Your {label} for **{interaction.guild.name}** was **{decision}**.")
+                try:
+                    await user.send(f"Your {label} for **{interaction.guild.name}** was **{decision}**.")
+                except (discord.Forbidden, discord.HTTPException):
+                    role_status += "\n\n**Notice:** I could not DM the applicant with the decision."
             save_state()
             await interaction.response.edit_message(content=f"Reviewed: **{decision}** by {interaction.user.mention}.{role_status}", view=None)
         return callback

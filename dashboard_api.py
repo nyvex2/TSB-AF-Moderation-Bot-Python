@@ -145,6 +145,9 @@ class DashboardAPI:
             value=item.get("staffRole")
             role=guild.get_role(int(value)) if value and str(value).isdigit() else None
             item["staffRole"]=role.name if role else ""
+            accepted_value=item.get("acceptedRole")
+            accepted_role=guild.get_role(int(accepted_value)) if accepted_value and str(accepted_value).isdigit() else None
+            item["acceptedRole"]=accepted_role.name if accepted_role else ""
             panels.append(item)
         out["dashboardApplications"]=panels
         return out
@@ -189,10 +192,11 @@ class DashboardAPI:
             for p in panels:
                 qs=p.get("questions",[])
                 if not isinstance(qs,list) or not 1<=len(qs)<=5 or any(not str(q.get("label","")).strip() or len(str(q.get("label","")))>45 for q in qs): raise web.HTTPBadRequest(text="Each panel needs 1–5 questions; labels must be 45 characters or less.")
-                item={k:p.get(k,d) for k,d in {"id":"","name":"Application","description":"","panelTitle":"Application","panelDescription":"","buttonText":"Apply","color":"#d6a64b","panelChannel":"","reviewChannel":"","staffRole":"","enabled":False,"messageId":""}.items()}
+                item={k:p.get(k,d) for k,d in {"id":"","name":"Application","description":"","panelTitle":"Application","panelDescription":"","buttonText":"Apply","color":"#d6a64b","panelChannel":"","reviewChannel":"","staffRole":"","acceptedRole":"","enabled":False,"messageId":""}.items()}
                 item["panelChannel"]=self.resolve(g,item["panelChannel"],"channel") if item["panelChannel"] else ""
                 item["reviewChannel"]=self.resolve(g,item["reviewChannel"],"channel") if item["reviewChannel"] else ""
                 item["staffRole"]=self.resolve(g,item["staffRole"],"role") if item["staffRole"] else ""
+                item["acceptedRole"]=self.resolve(g,item["acceptedRole"],"role") if item["acceptedRole"] else ""
                 item["questions"]=[{"label":str(q["label"]), "required":bool(q.get("required",True))} for q in qs]
                 clean.append(item)
             c["dashboardApplications"]=clean
@@ -291,49 +295,87 @@ class DashboardAPI:
         app.router.add_post("/api/guilds/{gid}/applications/publish-all",self.publish_all)
         return app
 
+APPLICATION_DM_LOCKS: dict[int, asyncio.Lock] = {}
+
+async def run_application_dm(bot, state, guild_config, save_state, review_view, guild_id, panel, user):
+    lock = APPLICATION_DM_LOCKS.setdefault(user.id, asyncio.Lock())
+    if lock.locked():
+        return "You already have an application conversation open. Finish it or wait for it to time out."
+    async with lock:
+        guild = bot.get_guild(guild_id)
+        if guild is None:
+            return "I cannot access that server right now. Please try again later."
+        cfg = guild_config(guild_id)
+        raw = panel.get("reviewChannel") or cfg.get("applicationChannelId")
+        channel = guild.get_channel(int(raw)) if raw and str(raw).isdigit() else None
+        if not isinstance(channel, discord.TextChannel):
+            return "The application review channel is not configured. Please contact staff."
+        try:
+            dm = await user.create_dm()
+            questions = panel.get("questions", [])[:5]
+            await dm.send(f"**{panel.get('name', 'Application')} — {guild.name}**\n\nI'll ask you {len(questions)} question(s), one at a time. Reply to each message with your answer. Send `cancel` at any time to stop.")
+        except (discord.Forbidden, discord.HTTPException):
+            return "I couldn't DM you. Enable direct messages from this server, then press Apply again."
+        answers = []
+        for index, question in enumerate(questions, 1):
+            label = str(question.get("label", f"Question {index}"))
+            required = bool(question.get("required", True))
+            while True:
+                try:
+                    await dm.send(f"**Question {index}/{len(questions)}**\n{label}" + ("\n\nThis question is required." if required else "\n\nThis question is optional. Reply `skip` to leave it blank."))
+                    reply = await bot.wait_for("message", timeout=600, check=lambda m: m.author.id == user.id and isinstance(m.channel, discord.DMChannel) and m.channel.id == dm.id)
+                except asyncio.TimeoutError:
+                    await dm.send("Your application timed out. Press Apply in the server to start again.")
+                    return "Your application timed out. You can start again from the application panel."
+                answer = reply.content.strip()
+                if answer.casefold() == "cancel":
+                    await dm.send("Your application was cancelled. You can apply again whenever you're ready.")
+                    return "Application cancelled."
+                if answer.casefold() == "skip" and not required:
+                    answers.append("No answer"); break
+                if not answer:
+                    if required:
+                        await dm.send("Please send an answer, or send `cancel` to stop."); continue
+                    answers.append("No answer"); break
+                answers.append(answer[:1000]); break
+        appid = f"{guild.id}-{user.id}-{int(time.time())}-{secrets.token_hex(3)}"
+        state["applications"][appid] = {"id":appid,"guildId":str(guild.id),"userId":str(user.id),"answers":answers,
+            "questions":[q.get("label","") for q in questions],"panelId":str(panel.get("id","")),"panelName":panel.get("name","Application"),
+            "reviewRoleId":str(panel.get("staffRole","")),"acceptedRoleId":str(panel.get("acceptedRole","")),"status":"pending","createdAt":discord.utils.utcnow().isoformat()}
+        save_state()
+        embed=discord.Embed(title=f"New {panel.get('name','Application')}",description=f"Applicant: {user.mention}\nApplication ID: `{appid}`",color=discord.Color.gold())
+        for question,answer in zip(questions,answers): embed.add_field(name=str(question.get("label","Answer"))[:256],value=answer[:1024] or "No answer",inline=False)
+        try:
+            await channel.send(embed=embed,view=review_view("app",appid))
+        except (discord.Forbidden,discord.HTTPException):
+            state["applications"].pop(appid,None); save_state()
+            await dm.send("I couldn't submit your application because the review channel is unavailable. Please contact staff.")
+            return "I couldn't post the application to the review channel."
+        await dm.send("Your application has been submitted successfully. Staff will review it and DM you their decision.")
+        return "Application submitted. Check your DMs for confirmation."
+
 class ApplicationPanelView(discord.ui.View):
     def __init__(self,bot,state,guild_config,save_state,review_view,guild_id,panel):
         super().__init__(timeout=None); self.bot=bot; self.state=state; self.guild_config=guild_config; self.save_state=save_state; self.review_view=review_view; self.guild_id=guild_id; self.panel=panel
         b=discord.ui.Button(label=panel.get("buttonText","Apply")[:80],style=discord.ButtonStyle.primary,custom_id=f"tsbaf:apply:{guild_id}:{panel['id']}")
-        b.callback=self.open_modal; self.add_item(b)
-    async def open_modal(self,interaction):
+        b.callback=self.start_dm; self.add_item(b)
+    async def start_dm(self,interaction):
         if interaction.guild_id!=self.guild_id: return await interaction.response.send_message("Wrong server.",ephemeral=True)
-        await interaction.response.send_modal(ApplicationPanelModal(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,self.panel))
+        await interaction.response.defer(ephemeral=True,thinking=True)
+        message=await run_application_dm(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,self.panel,interaction.user)
+        await interaction.followup.send(message,ephemeral=True)
 
 class MultiApplicationPanelView(discord.ui.View):
     def __init__(self,bot,state,guild_config,save_state,review_view,guild_id,panels):
-        super().__init__(timeout=None)
-        self.bot=bot; self.state=state; self.guild_config=guild_config; self.save_state=save_state; self.review_view=review_view; self.guild_id=guild_id
+        super().__init__(timeout=None); self.bot=bot; self.state=state; self.guild_config=guild_config; self.save_state=save_state; self.review_view=review_view; self.guild_id=guild_id
         for panel in panels[:25]:
             button=discord.ui.Button(label=str(panel.get("buttonText","Apply"))[:80],style=discord.ButtonStyle.primary,custom_id=f"tsbaf:apply:{guild_id}:{panel['id']}")
             async def callback(interaction, selected=panel):
-                if interaction.guild_id!=self.guild_id:
-                    return await interaction.response.send_message("Wrong server.",ephemeral=True)
-                await interaction.response.send_modal(ApplicationPanelModal(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,selected))
-            button.callback=callback
-            self.add_item(button)
-
-class ApplicationPanelModal(discord.ui.Modal):
-    def __init__(self,bot,state,guild_config,save_state,review_view,guild_id,panel):
-        super().__init__(title=str(panel.get("name","Application"))[:45],timeout=300)
-        self.bot=bot; self.state=state; self.guild_config=guild_config; self.save_state=save_state; self.review_view=review_view; self.guild_id=guild_id; self.panel=panel; self.inputs=[]
-        for i,q in enumerate(panel.get("questions",[])[:5]):
-            x=discord.ui.TextInput(label=str(q.get("label",f"Question {i+1}"))[:45],required=bool(q.get("required",True)),style=discord.TextStyle.paragraph,max_length=1000)
-            self.inputs.append(x); self.add_item(x)
-    async def on_submit(self,interaction):
-        guild=self.bot.get_guild(self.guild_id); cfg=self.guild_config(self.guild_id)
-        raw=self.panel.get("reviewChannel") or cfg.get("applicationChannelId")
-        channel=guild.get_channel(int(raw)) if guild and str(raw).isdigit() else None
-        if not isinstance(channel,discord.TextChannel): return await interaction.response.send_message("Application review channel is not configured.",ephemeral=True)
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        appid=f"{guild.id}-{interaction.user.id}-{int(time.time())}-{secrets.token_hex(3)}"
-        answers=[str(x.value) for x in self.inputs]
-        self.state["applications"][appid]={"id":appid,"guildId":str(guild.id),"userId":str(interaction.user.id),"answers":answers,"questions":[q.get("label","") for q in self.panel.get("questions",[])[:5]],"panelId":self.panel["id"],"panelName":self.panel.get("name","Application"),"reviewRoleId":str(self.panel.get("staffRole","")),"status":"pending","createdAt":discord.utils.utcnow().isoformat()}
-        self.save_state()
-        embed=discord.Embed(title=f"New {self.panel.get('name','Application')}",description=f"Applicant: {interaction.user.mention}\\nApplication ID: {appid}",color=discord.Color.gold())
-        for q,a in zip(self.panel.get("questions",[])[:5],answers): embed.add_field(name=str(q.get("label","Answer"))[:256],value=a[:1024] or "No answer",inline=False)
-        await channel.send(embed=embed,view=self.review_view("app",appid))
-        await interaction.followup.send("Application submitted for staff review.",ephemeral=True)
+                if interaction.guild_id!=self.guild_id: return await interaction.response.send_message("Wrong server.",ephemeral=True)
+                await interaction.response.defer(ephemeral=True,thinking=True)
+                message=await run_application_dm(self.bot,self.state,self.guild_config,self.save_state,self.review_view,self.guild_id,selected,interaction.user)
+                await interaction.followup.send(message,ephemeral=True)
+            button.callback=callback; self.add_item(button)
 
 async def start_dashboard_api(bot,state,guild_config,save_state,review_view):
     api=DashboardAPI(bot,state,guild_config,save_state,review_view); app=api.app()
