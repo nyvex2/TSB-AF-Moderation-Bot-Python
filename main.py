@@ -977,14 +977,14 @@ async def say(interaction: discord.Interaction, message: app_commands.Range[str,
 
 @tree.command(name="embed-say", description="Send a custom embed.")
 @app_commands.describe(title="Embed title", description="Embed description", color="Hex color, e.g. #5865F2", channel="Destination channel")
-async def embed_say(interaction: discord.Interaction, title: app_commands.Range[str, 1, 256], description: app_commands.Range[str, 1, 4000], color: str = "#5865F2", channel: discord.TextChannel | None = None):
+async def embed_say(interaction: discord.Interaction, title: app_commands.Range[str, 1, 256], description: app_commands.Range[str, 1, 4000], color: str = "#8B5CF6", channel: discord.TextChannel | None = None):
     if not interaction.user.guild_permissions.manage_messages:
         return await reply_private(interaction, "You need Manage Messages.")
     raw = color.lstrip("#")
     try:
-        value = int(raw, 16) if len(raw) == 6 else 0x5865F2
+        value = int(raw, 16) if len(raw) == 6 else PURPLE.value
     except ValueError:
-        value = 0x5865F2
+        value = PURPLE.value
     embed = discord.Embed(title=title, description=description, color=value, timestamp=datetime.now(timezone.utc))
     await (channel or interaction.channel).send(embed=embed)
     await reply_private(interaction, "Embed sent.")
