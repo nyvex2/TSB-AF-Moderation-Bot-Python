@@ -186,7 +186,8 @@ async def send_blacklist_log(guild: discord.Guild, embed: discord.Embed) -> bool
     await channel.send(embed=embed)
     return True
 
-CYAN = discord.Color.from_rgb(0, 255, 255)
+PURPLE = discord.Color.from_rgb(139, 92, 246)
+CYAN = PURPLE  # Backwards-compatible alias: all standard bot embeds use the purple theme.
 
 async def get_jail_role(guild: discord.Guild) -> discord.Role:
     cfg = guild_config(guild.id)
